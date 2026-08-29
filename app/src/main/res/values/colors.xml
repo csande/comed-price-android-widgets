@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_text_color">#FFFFFF</color>
+
+    <!-- Widget background, chosen by price band (see WidgetUpdateUtil). -->
+    <color name="price_low_color">#43BF55</color>
+    <color name="price_medium_color">#D38240</color>
+    <color name="price_high_color">#C50033</color>
+    <color name="price_unknown_color">#616161</color>
+
+    <color name="ic_launcher_background">#0D47A1</color>
+</resources>
