@@ -78,6 +78,14 @@ app/src/main/res/
   mipmap-anydpi-v26/            Adaptive launcher icon
 ```
 
+## Attribution
+
+The launcher icon's lightning-bolt artwork is Google's Noto Emoji "high
+voltage sign" (U+26A1) glyph, from
+[googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji),
+licensed under the
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
 ## Notes / possible future improvements
 
 - The app has no launcher activity by design (it's widget-only); to

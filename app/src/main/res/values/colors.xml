@@ -7,6 +7,4 @@
     <color name="price_medium_color">#D38240</color>
     <color name="price_high_color">#C50033</color>
     <color name="price_unknown_color">#616161</color>
-
-    <color name="ic_launcher_background">#0D47A1</color>
 </resources>

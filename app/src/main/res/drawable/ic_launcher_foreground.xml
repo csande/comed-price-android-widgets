@@ -3,7 +3,21 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M37.5,21 V57.3 H47.4 V87 L70.5,47.4 H57.3 L70.5,21 Z" />
+    <!--
+      Path data is Noto Emoji's "high voltage sign" (U+26A1) glyph,
+      https://github.com/googlefonts/noto-emoji, licensed under the
+      Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+      The group transform below rescales it from its native 128x128
+      viewBox into this icon's 108x108 canvas, centered within the
+      adaptive-icon safe zone.
+    -->
+    <group
+        android:scaleX="0.3895"
+        android:scaleY="0.3895"
+        android:translateX="29.07"
+        android:translateY="29.04">
+        <path
+            android:fillColor="#FCC21B"
+            android:pathData="M115.36,61.84L70.22,50.49L114.45,2.4c0.41-0.45,0.43-1.13,0.05-1.6c-0.39-0.48-1.07-0.59-1.59-0.27 L12.3,61.98c-0.41,0.25-0.64,0.72-0.57,1.2c0.06,0.48,0.4,0.87,0.87,1.01l45.07,13.25L13.38,125.6c-0.42,0.46-0.44,1.15-0.04,1.61 c0.24,0.29,0.58,0.44,0.94,0.44c0.22,0,0.45-0.06,0.65-0.19l100.78-63.41c0.42-0.26,0.64-0.75,0.56-1.22 C116.19,62.34,115.84,61.95,115.36,61.84z" />
+    </group>
 </vector>
