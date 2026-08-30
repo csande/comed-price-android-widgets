@@ -14,8 +14,8 @@ adapts automatically since it's based on elapsed time, not a fixed count.
 If the network request fails for any reason, the widget shows `⚡No data`
 rather than a stale value.
 
-Tapping the widget opens `https://hourlypricing.comed.com/live-prices/`
-in the browser.
+Tapping the widget triggers an immediate refresh, rather than waiting for
+the next scheduled 5-minute update.
 
 ## Opening the project
 
@@ -89,3 +89,4 @@ app/src/main/res/
   This means each refresh downloads slightly more data than strictly
   necessary (roughly 288 small JSON records), which is a reasonable
   trade-off for correctness but could be tightened later.
+- 

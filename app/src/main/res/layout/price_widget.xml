@@ -32,6 +32,18 @@
             android:autoSizeStepGranularity="1sp"
             android:text="@string/price_unavailable" />
 
+        <ProgressBar
+            android:id="@+id/loading_indicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/widget_text_color"
+            android:visibility="gone"
+            style="?android:attr/progressBarStyleSmall" />
+
     </FrameLayout>
 
 </FrameLayout>
