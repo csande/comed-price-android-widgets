@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ComEd Price Widget</string>
-    <string name="price_unavailable">⚡-</string>
+    <string name="price_unavailable">⚡ -</string>
+    <string name="time_placeholder">--:--</string>
 </resources>

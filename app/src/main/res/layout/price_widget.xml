@@ -8,29 +8,53 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:layout_marginTop="15dp"
+        android:layout_marginTop="7dp"
         android:layout_marginStart="0dp"
         android:layout_marginEnd="0dp"
         android:background="@drawable/widget_background_unknown">
 
-        <TextView
-            android:id="@+id/price_text"
+        <LinearLayout
+            android:id="@+id/content_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="16dp"
-            android:paddingBottom="16dp"
-            android:textColor="@color/widget_text_color"
-            android:textStyle="bold"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="8sp"
-            android:autoSizeMaxTextSize="20sp"
-            android:autoSizeStepGranularity="1sp"
-            android:text="@string/price_unavailable" />
+            android:layout_gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/price_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="2dp"
+                android:textColor="@color/widget_text_color"
+                android:textStyle="bold"
+                android:autoSizeTextType="uniform"
+                android:autoSizeMinTextSize="8sp"
+                android:autoSizeMaxTextSize="20sp"
+                android:autoSizeStepGranularity="1sp"
+                android:text="@string/price_unavailable" />
+
+            <TextView
+                android:id="@+id/last_updated_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="14dp"
+                android:textColor="@color/widget_secondary_text_color"
+                android:textSize="9sp"
+                android:text="@string/time_placeholder" />
+
+        </LinearLayout>
 
         <ProgressBar
             android:id="@+id/loading_indicator"

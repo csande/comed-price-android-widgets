@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.text.format.DateFormat
 import android.view.View
 import android.widget.RemoteViews
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -14,6 +15,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -43,11 +45,13 @@ object WidgetUpdateUtil {
         val displayText = formatPrice(context, average)
         val band = bandFor(average)
         saveLastBand(context, band)
+        val updatedText = formatLastUpdated(context, System.currentTimeMillis())
 
         for (widgetId in widgetIds) {
             val views = RemoteViews(context.packageName, R.layout.price_widget)
             views.setTextViewText(R.id.price_text, displayText)
-            views.setViewVisibility(R.id.price_text, View.VISIBLE)
+            views.setTextViewText(R.id.last_updated_text, updatedText)
+            views.setViewVisibility(R.id.content_container, View.VISIBLE)
             views.setViewVisibility(R.id.loading_indicator, View.GONE)
             views.setInt(R.id.widget_root, "setBackgroundResource", band.backgroundRes)
             views.setOnClickPendingIntent(R.id.widget_root, buildManualRefreshIntent(context))
@@ -72,7 +76,7 @@ object WidgetUpdateUtil {
 
         for (widgetId in widgetIds) {
             val views = RemoteViews(context.packageName, R.layout.price_widget)
-            views.setViewVisibility(R.id.price_text, View.GONE)
+            views.setViewVisibility(R.id.content_container, View.GONE)
             views.setViewVisibility(R.id.loading_indicator, View.VISIBLE)
             views.setInt(R.id.widget_root, "setBackgroundResource", lastBand.backgroundRes)
             views.setOnClickPendingIntent(R.id.widget_root, buildManualRefreshIntent(context))
@@ -82,7 +86,18 @@ object WidgetUpdateUtil {
 
     private fun formatPrice(context: Context, average: Double?): String {
         if (average == null) return context.getString(R.string.price_unavailable)
-        return String.format(Locale.US, "\u26A1%.1f\u00A2", average)
+        return String.format(Locale.US, "\u26A1 %.1f\u00A2", average)
+    }
+
+    /**
+     * Formats the given time using the device's own 12h/24h clock
+     * preference, so the widget shows when it was last actually refreshed
+     * — relevant now that a refresh while the screen is off is skipped
+     * entirely (see RefreshWorker), so the displayed price can otherwise
+     * silently go stale without any indication.
+     */
+    private fun formatLastUpdated(context: Context, millis: Long): String {
+        return DateFormat.getTimeFormat(context).format(Date(millis))
     }
 
     /**
