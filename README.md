@@ -5,17 +5,26 @@ price, e.g. `⚡2.3¢`.
 
 ## What it displays
 
-The value shown is the average of all 5-minute price points from ComEd's
-API (`https://hourlypricing.comed.com/api?type=5minutefeed`) that fall
-within 30 minutes of the most recent data point in the response — not
-simply "the last 7 points." If the feed's cadence changes, the calculation
-adapts automatically since it's based on elapsed time, not a fixed count.
+The value shown is an exponentially-weighted average of 5-minute price
+points from ComEd's API
+(`https://hourlypricing.comed.com/api?type=5minutefeed`), anchored on the
+most recent data point. Recent prices count more than older ones, fading
+out smoothly by age rather than a hard cutoff — see `ComedApiClient.kt`
+for the tunable half-life.
 
 If the network request fails for any reason, the widget shows `⚡No data`
 rather than a stale value.
 
 Tapping the widget triggers an immediate refresh, rather than waiting for
 the next scheduled 5-minute update.
+
+The 5-minute background refresh is skipped whenever the screen is off
+(checked via `PowerManager.isInteractive()`), since there's no point
+spending a network fetch and battery on an update nobody can see. The
+alarm chain itself keeps firing on schedule regardless — each firing
+just checks the screen state and no-ops if it's off — so a refresh
+happens promptly at whichever 5-minute tick the screen is next on for,
+and a manual tap always refreshes immediately regardless of this check.
 
 ## Opening the project
 
@@ -61,21 +70,22 @@ device is idle.
 
 ```
 app/src/main/java/com/example/comedpricewidget/
-  ComedApiClient.kt       Fetches the ComEd feed and computes the average
-  WidgetUpdateUtil.kt      Shared logic: renders widget views, schedules
-                           the alarm chain and WorkManager fallback
-  RefreshWorker.kt         WorkManager Worker that performs the refresh
-  PriceAlarmReceiver.kt    Fires every 5 minutes, reschedules itself
-  BootReceiver.kt          Re-arms scheduling after a device reboot
-  PriceWidgetProvider.kt   AppWidgetProvider: widget lifecycle
+  ComedApiClient.kt         Fetches the ComEd feed and computes the average
+  WidgetUpdateUtil.kt       Shared logic: renders widget views, schedules
+                            the alarm chain and WorkManager fallback
+  RefreshWorker.kt          WorkManager Worker that performs the refresh
+                            (no-ops if the screen is currently off)
+  PriceAlarmReceiver.kt     Fires every 5 minutes, reschedules itself
+  ManualRefreshReceiver.kt  Handles the widget's tap-to-refresh
+  BootReceiver.kt           Re-arms scheduling after a device reboot
+  PriceWidgetProvider.kt    AppWidgetProvider: widget lifecycle
 
 app/src/main/res/
-  layout/price_widget.xml       Widget layout (single centered TextView)
-  xml/price_widget_info.xml     Widget metadata (1x1 size, etc.)
-  drawable/widget_background.xml Rounded widget background
-  values/colors.xml             Light theme colors
-  values-night/colors.xml       Dark theme colors (auto system match)
-  mipmap-anydpi-v26/            Adaptive launcher icon
+  layout/price_widget.xml            Widget layout (price text + spinner)
+  xml/price_widget_info.xml          Widget metadata (1x1 size, etc.)
+  drawable/widget_background_*.xml   Rounded backgrounds, one per price band
+  values/colors.xml                  Text color + one color per price band
+  mipmap-anydpi-v26/                 Adaptive launcher icon
 ```
 
 ## Attribution
