@@ -52,7 +52,7 @@ object WidgetUpdateUtil {
             views.setTextViewText(R.id.price_text, displayText)
             views.setTextViewText(R.id.last_updated_text, updatedText)
             views.setViewVisibility(R.id.content_container, View.VISIBLE)
-            views.setViewVisibility(R.id.loading_indicator, View.GONE)
+            views.setViewVisibility(R.id.loading_indicator, View.INVISIBLE)
             views.setInt(R.id.widget_root, "setBackgroundResource", band.backgroundRes)
             views.setOnClickPendingIntent(R.id.widget_root, buildManualRefreshIntent(context))
             appWidgetManager.updateAppWidget(widgetId, views)
@@ -76,7 +76,7 @@ object WidgetUpdateUtil {
 
         for (widgetId in widgetIds) {
             val views = RemoteViews(context.packageName, R.layout.price_widget)
-            views.setViewVisibility(R.id.content_container, View.GONE)
+            views.setViewVisibility(R.id.content_container, View.INVISIBLE)
             views.setViewVisibility(R.id.loading_indicator, View.VISIBLE)
             views.setInt(R.id.widget_root, "setBackgroundResource", lastBand.backgroundRes)
             views.setOnClickPendingIntent(R.id.widget_root, buildManualRefreshIntent(context))

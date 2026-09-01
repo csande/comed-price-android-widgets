@@ -34,8 +34,8 @@
                 android:textColor="@color/widget_text_color"
                 android:textStyle="bold"
                 android:autoSizeTextType="uniform"
-                android:autoSizeMinTextSize="8sp"
-                android:autoSizeMaxTextSize="20sp"
+                android:autoSizeMinTextSize="10sp"
+                android:autoSizeMaxTextSize="22sp"
                 android:autoSizeStepGranularity="1sp"
                 android:text="@string/price_unavailable" />
 
@@ -51,7 +51,7 @@
                 android:paddingTop="2dp"
                 android:paddingBottom="14dp"
                 android:textColor="@color/widget_secondary_text_color"
-                android:textSize="9sp"
+                android:textSize="8sp"
                 android:text="@string/time_placeholder" />
 
         </LinearLayout>
