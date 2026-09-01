@@ -50,7 +50,7 @@
                 android:paddingEnd="6dp"
                 android:paddingTop="2dp"
                 android:paddingBottom="14dp"
-                android:textColor="@color/widget_secondary_text_color"
+                android:textColor="@color/widget_text_color"
                 android:textSize="8sp"
                 android:text="@string/time_placeholder" />
 

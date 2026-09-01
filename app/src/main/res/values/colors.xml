@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="widget_text_color">#FFFFFF</color>
-    <color name="widget_secondary_text_color">#B3FFFFFF</color>
 
     <!-- Widget background, chosen by price band (see WidgetUpdateUtil). -->
     <color name="price_low_color">#43BF55</color>
