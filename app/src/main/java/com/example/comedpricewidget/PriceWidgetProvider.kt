@@ -7,24 +7,23 @@ import android.content.Context
 class PriceWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        // Called by the system when a widget is placed, and thereafter at
-        // most every 30 minutes (the OS-enforced floor for
-        // updatePeriodMillis; see price_widget_info.xml). The real
-        // 5-minute cadence is driven by PriceAlarmReceiver — this is a
-        // safety-net refresh only.
-        WidgetUpdateUtil.enqueueImmediateRefresh(context)
+        // With updatePeriodMillis=0 (see price_widget_info.xml) the system
+        // calls this only around initial placement, not on a recurring
+        // schedule — the 5-minute cadence is entirely driven by the
+        // AlarmManager chain started below. Safe to call redundantly
+        // alongside onEnabled: both the watchdog scheduling and the
+        // immediate work enqueue are deduplicated.
+        WidgetUpdateUtil.initializeWidgetUpdates(context)
     }
 
     override fun onEnabled(context: Context) {
         // Called once, when the first widget instance is placed.
-        WidgetUpdateUtil.scheduleNextAlarm(context)
-        WidgetUpdateUtil.schedulePeriodicFallback(context)
-        WidgetUpdateUtil.enqueueImmediateRefresh(context)
+        WidgetUpdateUtil.initializeWidgetUpdates(context)
     }
 
     override fun onDisabled(context: Context) {
         // Called once, when the last widget instance is removed.
         WidgetUpdateUtil.cancelAlarm(context)
-        WidgetUpdateUtil.cancelPeriodicFallback(context)
+        WidgetUpdateUtil.cancelWatchdog(context)
     }
 }

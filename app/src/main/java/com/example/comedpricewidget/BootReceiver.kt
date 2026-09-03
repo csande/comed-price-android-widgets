@@ -7,9 +7,9 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * AlarmManager alarms are cleared on reboot, so the 5-minute chain and the
- * WorkManager fallback are re-armed here if any widget is currently
- * placed on a homescreen.
+ * AlarmManager alarms and unpersisted WorkManager jobs are both cleared
+ * on reboot, so the update chain is restarted here if any widget is
+ * currently placed on a homescreen.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,8 +21,6 @@ class BootReceiver : BroadcastReceiver() {
         )
         if (widgetIds.isEmpty()) return
 
-        WidgetUpdateUtil.scheduleNextAlarm(context)
-        WidgetUpdateUtil.schedulePeriodicFallback(context)
-        WidgetUpdateUtil.enqueueImmediateRefresh(context)
+        WidgetUpdateUtil.initializeWidgetUpdates(context)
     }
 }

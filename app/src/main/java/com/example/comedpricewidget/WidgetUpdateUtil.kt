@@ -22,17 +22,34 @@ import java.util.concurrent.TimeUnit
 object WidgetUpdateUtil {
 
     private const val ALARM_INTERVAL_MILLIS = 5L * 60L * 1000L
-    private const val FALLBACK_WORK_NAME = "comed_price_fallback_refresh"
     private const val IMMEDIATE_WORK_NAME = "comed_price_immediate_refresh"
+    private const val WATCHDOG_WORK_NAME = "comed_price_watchdog"
+    private const val WATCHDOG_INTERVAL_MINUTES = 15L
+
+    /**
+     * The chain is considered dead if no update cycle has ticked (see
+     * onChainTick) in this long. Set comfortably above the 5-minute alarm
+     * interval so a single alarm delayed by light Doze throttling doesn't
+     * falsely trigger a watchdog recovery.
+     */
+    private const val WATCHDOG_STALE_THRESHOLD_MILLIS = 12L * 60L * 1000L
+
     private const val PREFS_NAME = "comed_price_widget_prefs"
     private const val KEY_LAST_BAND = "last_band"
+    private const val KEY_LAST_TICK_MILLIS = "last_chain_tick_millis"
 
     // ---- Widget content -----------------------------------------------
 
     /**
      * Fetches the latest price and pushes it to every placed widget
      * instance. Performs blocking network I/O; call only from a
-     * background thread (this is invoked from RefreshWorker).
+     * background thread (this is invoked from RefreshWorker). Runs
+     * unconditionally regardless of screen state — there is no
+     * interactive-screen check here. AlarmManager's own Doze-aware
+     * throttling (see scheduleNextAlarm) is what limits how often this
+     * actually runs during idle stretches, so gating on screen state here
+     * would be redundant and would leave the widget stale immediately
+     * after a short screen-off period.
      */
     fun refreshAllWidgets(context: Context) {
         val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -91,10 +108,7 @@ object WidgetUpdateUtil {
 
     /**
      * Formats the given time using the device's own 12h/24h clock
-     * preference, so the widget shows when it was last actually refreshed
-     * — relevant now that a refresh while the screen is off is skipped
-     * entirely (see RefreshWorker), so the displayed price can otherwise
-     * silently go stale without any indication.
+     * preference, so the widget shows when it was last actually refreshed.
      */
     private fun formatLastUpdated(context: Context, millis: Long): String {
         return DateFormat.getTimeFormat(context).format(Date(millis))
@@ -145,13 +159,58 @@ object WidgetUpdateUtil {
         )
     }
 
-    // ---- WorkManager (does the actual background refresh) -------------
+    // ---- Update chain bookkeeping ---------------------------------------
 
     /**
-     * Enqueues a one-off background refresh right away. Uses a unique work
-     * name with KEEP semantics so that near-simultaneous callers (e.g.
-     * onEnabled and onUpdate both firing when a widget is first placed)
-     * don't trigger duplicate concurrent network requests.
+     * Called from RefreshWorker once an update cycle finishes, whether or
+     * not the fetch itself succeeded. Records that the chain is still
+     * alive and re-arms the next alarm — this is the single place
+     * responsible for keeping the 5-minute cadence going, so every
+     * trigger (alarm, tap, boot, initial placement, watchdog recovery)
+     * funnels through it via RefreshWorker.
+     */
+    fun onChainTick(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_LAST_TICK_MILLIS, System.currentTimeMillis())
+            .apply()
+        scheduleNextAlarm(context)
+    }
+
+    /**
+     * True if the chain hasn't ticked recently enough to trust that the
+     * alarm is still going to fire on its own. A value of 0 (never
+     * ticked) is treated as stale, which also covers the case of a chain
+     * that never got off the ground.
+     */
+    fun isChainStale(context: Context): Boolean {
+        val lastTick = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_LAST_TICK_MILLIS, 0L)
+        return (System.currentTimeMillis() - lastTick) > WATCHDOG_STALE_THRESHOLD_MILLIS
+    }
+
+    /**
+     * Starts (or idempotently resumes) the update chain: arms the
+     * watchdog and runs an immediate update cycle, which will itself
+     * schedule the next alarm once it completes. Called from onEnabled,
+     * onUpdate (initial placement), and BootReceiver — safe to call
+     * redundantly, since both the watchdog scheduling and the immediate
+     * work enqueue are deduplicated.
+     */
+    fun initializeWidgetUpdates(context: Context) {
+        scheduleWatchdog(context)
+        enqueueImmediateRefresh(context)
+    }
+
+    // ---- WorkManager (runs the update cycle, and the watchdog) ---------
+
+    /**
+     * Enqueues one run of the update cycle (fetch + refresh widgets +
+     * re-arm the next alarm) right away. Uses a unique work name with
+     * KEEP semantics so that near-simultaneous callers (e.g. an alarm
+     * firing right as a manual tap comes in) don't trigger duplicate
+     * concurrent network requests — whichever run actually executes will
+     * still re-arm the alarm for everyone.
      */
     fun enqueueImmediateRefresh(context: Context) {
         WorkManager.getInstance(context).enqueueUniqueWork(
@@ -162,26 +221,38 @@ object WidgetUpdateUtil {
     }
 
     /**
-     * Schedules a 15-minute periodic refresh (WorkManager's minimum
-     * interval) as a safety net in case the AlarmManager chain below gets
-     * dropped by the OS (e.g. aggressive OEM battery management).
+     * Schedules a low-frequency (15-minute, WorkManager's practical floor)
+     * periodic check of whether the alarm chain above is still alive. This
+     * is not part of the normal 5-minute cadence — it only intervenes
+     * (see WatchdogWorker) if the chain has gone silent, e.g. the alarm
+     * or its PendingIntent was cleared by the OS, or a RefreshWorker run
+     * was killed mid-execution before it could re-arm the next alarm.
      */
-    fun schedulePeriodicFallback(context: Context) {
-        val request = PeriodicWorkRequestBuilder<RefreshWorker>(15, TimeUnit.MINUTES).build()
+    fun scheduleWatchdog(context: Context) {
+        val request = PeriodicWorkRequestBuilder<WatchdogWorker>(
+            WATCHDOG_INTERVAL_MINUTES, TimeUnit.MINUTES
+        ).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            FALLBACK_WORK_NAME,
+            WATCHDOG_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             request
         )
     }
 
-    fun cancelPeriodicFallback(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(FALLBACK_WORK_NAME)
+    fun cancelWatchdog(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(WATCHDOG_WORK_NAME)
     }
 
-    // ---- AlarmManager (drives the true 5-minute cadence) ---------------
+    // ---- AlarmManager (drives the 5-minute cadence) ---------------------
 
-    /** Schedules (or re-schedules) the next 5-minute alarm-driven refresh. */
+    /**
+     * Schedules (or re-schedules) the next 5-minute alarm-driven update.
+     * Reusing the same PendingIntent request code means this both cancels
+     * any existing pending trigger and installs the new one in a single
+     * call. Subject to Doze-aware throttling by the OS while the device
+     * is idle — that throttling, not any screen-state check in this app,
+     * is what keeps the cadence off battery during long idle stretches.
+     */
     fun scheduleNextAlarm(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pendingIntent = alarmPendingIntent(context)
