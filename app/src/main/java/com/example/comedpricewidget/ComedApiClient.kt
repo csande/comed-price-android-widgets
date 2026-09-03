@@ -50,12 +50,44 @@ object ComedApiClient {
      */
     private const val MAX_AGE_MINUTES = 120.0
 
+    /**
+     * Total attempts made for a single fetch before giving up and
+     * returning null for this tick. Deliberately small: this call runs
+     * inside a WorkManager Worker holding a wake lock for its duration
+     * (see RefreshWorker), so retries here extend how long the device
+     * stays awake. A tick that exhausts all attempts isn't the end of
+     * the line — the next alarm fires in 5 minutes regardless (see
+     * WidgetUpdateUtil.onChainTick), so this only needs to smooth over
+     * brief, transient failures, not guarantee eventual success.
+     */
+    private const val MAX_ATTEMPTS = 3
+
+    /** Base delay before the first retry; doubles on each subsequent attempt. */
+    private const val BASE_RETRY_DELAY_MILLIS = 1_000L
+
+    /** Upper bound on any single retry delay, including one derived from a Retry-After header. */
+    private const val MAX_RETRY_DELAY_MILLIS = 10_000L
+
+    /**
+     * HTTP response codes worth retrying: 429 (rate limited) and the 5xx
+     * range (server-side/upstream trouble, often transient). Other 4xx
+     * codes indicate a problem with the request itself that a retry
+     * won't fix, so those fail immediately instead.
+     */
+    private val RETRYABLE_HTTP_CODES = setOf(429, 500, 502, 503, 504)
+
     private data class PricePoint(val millisUtc: Long, val price: Double)
+
+    private sealed class FetchOutcome {
+        data class Success(val points: List<PricePoint>) : FetchOutcome()
+        data class Retryable(val reason: String, val retryAfterMillis: Long? = null) : FetchOutcome()
+        data class Failed(val reason: String) : FetchOutcome()
+    }
 
     /**
      * Returns the exponentially-weighted average price (in cents/kWh)
      * anchored on the most recent data point returned by the API, or null
-     * if the data could not be fetched or parsed.
+     * if the data could not be fetched or parsed after retries.
      */
     fun fetchAveragePrice(): Double? {
         val points = fetchPricePoints() ?: return null
@@ -79,7 +111,52 @@ object ComedApiClient {
         return weightedSum / weightTotal
     }
 
+    /**
+     * Attempts the fetch up to MAX_ATTEMPTS times, retrying only on
+     * transient outcomes (network exceptions, 429, or 5xx) with a
+     * short exponential backoff between attempts. A non-retryable
+     * outcome (e.g. a 4xx other than 429, or a successful-but-unparseable
+     * body) or exhausting all attempts both result in null.
+     */
     private fun fetchPricePoints(): List<PricePoint>? {
+        var attempt = 1
+        while (true) {
+            when (val outcome = attemptFetch()) {
+                is FetchOutcome.Success -> {
+                    Log.d(TAG, "Fetched ${outcome.points.size} price points (attempt $attempt)")
+                    return outcome.points
+                }
+                is FetchOutcome.Failed -> {
+                    Log.w(TAG, "Fetch failed, not retrying: ${outcome.reason}")
+                    return null
+                }
+                is FetchOutcome.Retryable -> {
+                    if (attempt >= MAX_ATTEMPTS) {
+                        Log.w(TAG, "Fetch failed after $attempt attempts: ${outcome.reason}")
+                        return null
+                    }
+                    val delayMillis = backoffDelayMillis(attempt, outcome.retryAfterMillis)
+                    Log.w(
+                        TAG,
+                        "Fetch attempt $attempt failed (${outcome.reason}), retrying in ${delayMillis}ms"
+                    )
+                    Thread.sleep(delayMillis)
+                    attempt++
+                }
+            }
+        }
+    }
+
+    private fun backoffDelayMillis(attempt: Int, retryAfterMillis: Long?): Long {
+        if (retryAfterMillis != null) {
+            return retryAfterMillis.coerceIn(0L, MAX_RETRY_DELAY_MILLIS)
+        }
+        val exponential = BASE_RETRY_DELAY_MILLIS * (1L shl (attempt - 1))
+        return exponential.coerceAtMost(MAX_RETRY_DELAY_MILLIS)
+    }
+
+    /** Performs a single connection attempt and classifies the result. */
+    private fun attemptFetch(): FetchOutcome {
         return try {
             val connection = (URL(FEED_URL).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -92,21 +169,37 @@ object ComedApiClient {
             }
             try {
                 val code = connection.responseCode
-                if (code != HttpURLConnection.HTTP_OK) {
-                    Log.w(TAG, "Unexpected response code: $code")
-                    return null
+                when {
+                    code == HttpURLConnection.HTTP_OK -> {
+                        val body = connection.inputStream.bufferedReader().use { it.readText() }
+                        FetchOutcome.Success(parsePoints(body))
+                    }
+                    code in RETRYABLE_HTTP_CODES -> {
+                        val retryAfterMillis = parseRetryAfterMillis(connection.getHeaderField("Retry-After"))
+                        FetchOutcome.Retryable("HTTP $code", retryAfterMillis)
+                    }
+                    else -> FetchOutcome.Failed("HTTP $code")
                 }
-                val body = connection.inputStream.bufferedReader().use { it.readText() }
-                val points = parsePoints(body)
-                Log.d(TAG, "Fetched ${points.size} price points")
-                points
             } finally {
                 connection.disconnect()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Fetch failed: ${e.javaClass.simpleName}: ${e.message}")
-            null
+            // Timeouts, connection resets, DNS hiccups, etc. Treated as
+            // transient — worth a retry within this tick.
+            FetchOutcome.Retryable("${e.javaClass.simpleName}: ${e.message}")
         }
+    }
+
+    /**
+     * Parses a Retry-After header given in delay-seconds form (e.g. "2").
+     * The HTTP-date form is not handled, since ComEd's feed has no
+     * documented use of Retry-After at all; this is a defensive best
+     * effort for if that ever changes, not a relied-upon behavior.
+     */
+    private fun parseRetryAfterMillis(headerValue: String?): Long? {
+        val seconds = headerValue?.toLongOrNull() ?: return null
+        if (seconds < 0) return null
+        return seconds * 1000L
     }
 
     private fun parsePoints(json: String): List<PricePoint> {
