@@ -51,14 +51,34 @@ object ComedApiClient {
     private const val MAX_AGE_MINUTES = 120.0
 
     /**
+     * If the feed's own most recent data point is older than this many
+     * minutes relative to the device's current time, the feed itself is
+     * considered too stale to trust, and this is treated as an outright
+     * "price unavailable" result rather than displaying a number that
+     * may no longer reflect reality — this is a distinct condition from
+     * a fetch failure: the request succeeded, but the data it returned
+     * is out of date.
+     *
+     * 15 minutes was chosen as 3x the feed's normal 5-minute publish
+     * cadence: comfortably beyond a single missed or delayed publish
+     * (ComEd's feed occasionally lags by a few minutes under normal
+     * operation), while still catching a genuine feed outage well within
+     * a few ticks of this widget's own 5-minute refresh chain. A tighter
+     * value (e.g. 10 minutes, exactly 2x the publish cadence) would
+     * trigger "unavailable" more readily on routine minor lag; a looser
+     * value would let a real outage go undetected for longer.
+     */
+    private const val FEED_STALENESS_THRESHOLD_MINUTES = 15.0
+
+    /**
      * Total attempts made for a single fetch before giving up and
-     * returning null for this tick. Deliberately small: this call runs
-     * inside a WorkManager Worker holding a wake lock for its duration
-     * (see RefreshWorker), so retries here extend how long the device
-     * stays awake. A tick that exhausts all attempts isn't the end of
-     * the line — the next alarm fires in 5 minutes regardless (see
-     * WidgetUpdateUtil.onChainTick), so this only needs to smooth over
-     * brief, transient failures, not guarantee eventual success.
+     * returning FetchFailed for this tick. Deliberately small: this call
+     * runs inside a WorkManager Worker holding a wake lock for its
+     * duration (see RefreshWorker), so retries here extend how long the
+     * device stays awake. A tick that exhausts all attempts isn't the
+     * end of the line — the next alarm fires in 5 minutes regardless
+     * (see WidgetUpdateUtil.onChainTick), so this only needs to smooth
+     * over brief, transient failures, not guarantee eventual success.
      */
     private const val MAX_ATTEMPTS = 3
 
@@ -78,62 +98,131 @@ object ComedApiClient {
 
     private data class PricePoint(val millisUtc: Long, val price: Double)
 
+    /**
+     * The outcome of fetchPrice(). Deliberately more than a nullable
+     * Double so the caller can tell apart three situations that all used
+     * to collapse into "null" and get the same "price unavailable"
+     * treatment:
+     *  - Available: a real, fresh price.
+     *  - FeedStale: the request succeeded, but the feed's own most recent
+     *    data point is too old to trust (see FEED_STALENESS_THRESHOLD_MINUTES).
+     *    Always shown as unavailable — the data that came back isn't
+     *    trustworthy, regardless of connectivity.
+     *  - FetchFailed: no usable response was obtained after retries.
+     *    likelyConnectivityIssue is true only if every attempt failed
+     *    with a connection-level exception (DNS failure, connect/read
+     *    timeout, connection reset, etc.) and none ever got as far as
+     *    receiving an HTTP response — i.e. nothing suggests the request
+     *    ever reached ComEd's servers at all, as opposed to reaching
+     *    them and getting back an error or empty body. The caller
+     *    combines this with device state (e.g. Doze) to decide whether
+     *    this looks enough like "no network was available" to warrant
+     *    showing a stale price instead of "unavailable".
+     */
+    sealed class PriceResult {
+        data class Available(val average: Double) : PriceResult()
+        object FeedStale : PriceResult()
+        data class FetchFailed(val likelyConnectivityIssue: Boolean) : PriceResult()
+    }
+
     private sealed class FetchOutcome {
         data class Success(val points: List<PricePoint>) : FetchOutcome()
-        data class Retryable(val reason: String, val retryAfterMillis: Long? = null) : FetchOutcome()
-        data class Failed(val reason: String) : FetchOutcome()
+        data class Retryable(
+            val reason: String,
+            val sawHttpResponse: Boolean,
+            val retryAfterMillis: Long? = null
+        ) : FetchOutcome()
+        data class Failed(val reason: String, val sawHttpResponse: Boolean) : FetchOutcome()
+    }
+
+    private sealed class PointsResult {
+        data class Success(val points: List<PricePoint>) : PointsResult()
+        data class Failure(val everSawHttpResponse: Boolean) : PointsResult()
     }
 
     /**
-     * Returns the exponentially-weighted average price (in cents/kWh)
-     * anchored on the most recent data point returned by the API, or null
-     * if the data could not be fetched or parsed after retries.
+     * Fetches and evaluates the current price. See PriceResult for what
+     * each outcome means.
      */
-    fun fetchAveragePrice(): Double? {
-        val points = fetchPricePoints() ?: return null
-        if (points.isEmpty()) return null
+    fun fetchPrice(): PriceResult {
+        when (val result = fetchPricePoints()) {
+            is PointsResult.Failure -> {
+                return PriceResult.FetchFailed(likelyConnectivityIssue = !result.everSawHttpResponse)
+            }
+            is PointsResult.Success -> {
+                val points = result.points
+                // fetchPricePoints() retries an empty-but-successful
+                // response rather than returning it, so this shouldn't
+                // occur in practice; treated defensively as a non-
+                // connectivity failure rather than assumed impossible.
+                if (points.isEmpty()) {
+                    return PriceResult.FetchFailed(likelyConnectivityIssue = false)
+                }
 
-        // The feed is documented to return points most-recent-first, but
-        // that ordering isn't relied on here; the true max is used instead.
-        val mostRecentMillis = points.maxOf { it.millisUtc }
+                // The feed is documented to return points most-recent-
+                // first, but that ordering isn't relied on here; the
+                // true max is used instead.
+                val mostRecentMillis = points.maxOf { it.millisUtc }
 
-        var weightedSum = 0.0
-        var weightTotal = 0.0
-        for (point in points) {
-            val ageMinutes = (mostRecentMillis - point.millisUtc) / 60_000.0
-            if (ageMinutes > MAX_AGE_MINUTES) continue
-            val weight = Math.pow(0.5, ageMinutes / HALF_LIFE_MINUTES)
-            weightedSum += weight * point.price
-            weightTotal += weight
+                val feedAgeMinutes = (System.currentTimeMillis() - mostRecentMillis) / 60_000.0
+                if (feedAgeMinutes > FEED_STALENESS_THRESHOLD_MINUTES) {
+                    Log.w(
+                        TAG,
+                        "Most recent feed point is %.1f min old (threshold %.0f); treating as unavailable"
+                            .format(feedAgeMinutes, FEED_STALENESS_THRESHOLD_MINUTES)
+                    )
+                    return PriceResult.FeedStale
+                }
+
+                var weightedSum = 0.0
+                var weightTotal = 0.0
+                for (point in points) {
+                    val ageMinutes = (mostRecentMillis - point.millisUtc) / 60_000.0
+                    if (ageMinutes > MAX_AGE_MINUTES) continue
+                    val weight = Math.pow(0.5, ageMinutes / HALF_LIFE_MINUTES)
+                    weightedSum += weight * point.price
+                    weightTotal += weight
+                }
+                // Can't actually be 0 given points is non-empty (the most
+                // recent point always has age 0, weight 1), but guarded
+                // defensively rather than assumed.
+                if (weightTotal == 0.0) {
+                    return PriceResult.FetchFailed(likelyConnectivityIssue = false)
+                }
+
+                return PriceResult.Available(weightedSum / weightTotal)
+            }
         }
-        if (weightTotal == 0.0) return null
-
-        return weightedSum / weightTotal
     }
 
     /**
      * Attempts the fetch up to MAX_ATTEMPTS times, retrying only on
-     * transient outcomes (network exceptions, 429, or 5xx) with a
-     * short exponential backoff between attempts. A non-retryable
-     * outcome (e.g. a 4xx other than 429, or a successful-but-unparseable
-     * body) or exhausting all attempts both result in null.
+     * transient outcomes (network exceptions, 429, 5xx, or a 200 response
+     * with no usable price points) with a short exponential backoff
+     * between attempts. Tracks, across all attempts, whether any of them
+     * ever got as far as receiving an HTTP response at all — used by
+     * fetchPrice() to distinguish "never reached the server" from
+     * "reached it and got an error or empty body".
      */
-    private fun fetchPricePoints(): List<PricePoint>? {
+    private fun fetchPricePoints(): PointsResult {
         var attempt = 1
+        var everSawHttpResponse = false
         while (true) {
             when (val outcome = attemptFetch()) {
                 is FetchOutcome.Success -> {
                     Log.d(TAG, "Fetched ${outcome.points.size} price points (attempt $attempt)")
-                    return outcome.points
+                    return PointsResult.Success(outcome.points)
                 }
                 is FetchOutcome.Failed -> {
                     Log.w(TAG, "Fetch failed, not retrying: ${outcome.reason}")
-                    return null
+                    everSawHttpResponse = everSawHttpResponse || outcome.sawHttpResponse
+                    return PointsResult.Failure(everSawHttpResponse)
                 }
                 is FetchOutcome.Retryable -> {
+                    everSawHttpResponse = everSawHttpResponse || outcome.sawHttpResponse
                     if (attempt >= MAX_ATTEMPTS) {
                         Log.w(TAG, "Fetch failed after $attempt attempts: ${outcome.reason}")
-                        return null
+                        return PointsResult.Failure(everSawHttpResponse)
                     }
                     val delayMillis = backoffDelayMillis(attempt, outcome.retryAfterMillis)
                     Log.w(
@@ -168,25 +257,40 @@ object ComedApiClient {
                 setRequestProperty("Accept", "application/json")
             }
             try {
+                // Reaching this line means an HTTP response was actually
+                // received — connection-level failures throw before here.
                 val code = connection.responseCode
                 when {
                     code == HttpURLConnection.HTTP_OK -> {
                         val body = connection.inputStream.bufferedReader().use { it.readText() }
-                        FetchOutcome.Success(parsePoints(body))
+                        val points = parsePoints(body)
+                        if (points.isEmpty()) {
+                            // The request succeeded but returned nothing
+                            // usable — worth a retry rather than treating
+                            // this the same as a real, populated response.
+                            FetchOutcome.Retryable(
+                                "HTTP 200 with no usable price points",
+                                sawHttpResponse = true
+                            )
+                        } else {
+                            FetchOutcome.Success(points)
+                        }
                     }
                     code in RETRYABLE_HTTP_CODES -> {
                         val retryAfterMillis = parseRetryAfterMillis(connection.getHeaderField("Retry-After"))
-                        FetchOutcome.Retryable("HTTP $code", retryAfterMillis)
+                        FetchOutcome.Retryable("HTTP $code", sawHttpResponse = true, retryAfterMillis)
                     }
-                    else -> FetchOutcome.Failed("HTTP $code")
+                    else -> FetchOutcome.Failed("HTTP $code", sawHttpResponse = true)
                 }
             } finally {
                 connection.disconnect()
             }
         } catch (e: Exception) {
-            // Timeouts, connection resets, DNS hiccups, etc. Treated as
-            // transient — worth a retry within this tick.
-            FetchOutcome.Retryable("${e.javaClass.simpleName}: ${e.message}")
+            // Timeouts, connection resets, DNS hiccups, etc. — no HTTP
+            // response was ever received. Treated as transient and worth
+            // a retry within this tick; also the signal fetchPrice() uses
+            // to flag a failure as connectivity-like.
+            FetchOutcome.Retryable("${e.javaClass.simpleName}: ${e.message}", sawHttpResponse = false)
         }
     }
 

@@ -6,8 +6,12 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
+import android.os.PowerManager
 import android.text.format.DateFormat
+import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -20,6 +24,8 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 object WidgetUpdateUtil {
+
+    private const val TAG = "WidgetUpdateUtil"
 
     private const val ALARM_INTERVAL_MILLIS = 5L * 60L * 1000L
     private const val IMMEDIATE_WORK_NAME = "comed_price_immediate_refresh"
@@ -37,6 +43,9 @@ object WidgetUpdateUtil {
     private const val PREFS_NAME = "comed_price_widget_prefs"
     private const val KEY_LAST_BAND = "last_band"
     private const val KEY_LAST_TICK_MILLIS = "last_chain_tick_millis"
+    private const val KEY_LAST_GOOD_PRICE_TEXT = "last_good_price_text"
+    private const val KEY_LAST_GOOD_BAND = "last_good_band"
+    private const val KEY_LAST_GOOD_UPDATED_MILLIS = "last_good_updated_millis"
 
     // ---- Widget content -----------------------------------------------
 
@@ -50,6 +59,21 @@ object WidgetUpdateUtil {
      * actually runs during idle stretches, so gating on screen state here
      * would be redundant and would leave the widget stale immediately
      * after a short screen-off period.
+     *
+     * Three cases redisplay the last successfully fetched price instead
+     * of overwriting the widget with "unavailable":
+     *  - No usable network connection is detected up front (skips the
+     *    fetch attempt entirely).
+     *  - The fetch was attempted but failed in a way that never got as
+     *    far as an HTTP response (only connection-level exceptions across
+     *    every retry), while the device is currently in Doze idle mode —
+     *    a combination that looks enough like "no network was actually
+     *    available for this attempt" to prefer stale data over an
+     *    explicit unavailable state.
+     * A feed-staleness result (the request succeeded, but the data
+     * itself is too old — see ComedApiClient) and any other fetch
+     * failure both still render as an explicit "unavailable" state,
+     * since those aren't connectivity problems.
      */
     fun refreshAllWidgets(context: Context) {
         val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -58,15 +82,54 @@ object WidgetUpdateUtil {
         )
         if (widgetIds.isEmpty()) return
 
-        val average = ComedApiClient.fetchAveragePrice()
-        val displayText = formatPrice(context, average)
-        val band = bandFor(average)
-        saveLastBand(context, band)
-        val updatedText = formatLastUpdated(context, System.currentTimeMillis())
+        if (!isNetworkAvailable(context)) {
+            Log.d(TAG, "No network available; redisplaying last known price instead of fetching")
+            renderLastGoodState(context, appWidgetManager, widgetIds)
+            return
+        }
 
+        when (val result = ComedApiClient.fetchPrice()) {
+            is ComedApiClient.PriceResult.Available -> {
+                val band = bandFor(result.average)
+                val priceText = formatPrice(context, result.average)
+                val nowMillis = System.currentTimeMillis()
+                val updatedText = formatLastUpdated(context, nowMillis)
+
+                saveLastBand(context, band)
+                saveLastGoodState(context, priceText, band, nowMillis)
+                renderWidgets(context, appWidgetManager, widgetIds, priceText, updatedText, band)
+            }
+            is ComedApiClient.PriceResult.FeedStale -> {
+                renderUnavailable(context, appWidgetManager, widgetIds)
+            }
+            is ComedApiClient.PriceResult.FetchFailed -> {
+                val presumedNoConnectivity = result.likelyConnectivityIssue && isDeviceIdleModeActive(context)
+                if (presumedNoConnectivity) {
+                    Log.d(
+                        TAG,
+                        "Fetch never reached the server and device is idle; treating as no network, " +
+                                "redisplaying last known price"
+                    )
+                    renderLastGoodState(context, appWidgetManager, widgetIds)
+                } else {
+                    renderUnavailable(context, appWidgetManager, widgetIds)
+                }
+            }
+        }
+    }
+
+    /** Pushes the given price/time/band to every widget instance. */
+    private fun renderWidgets(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        widgetIds: IntArray,
+        priceText: String,
+        updatedText: String,
+        band: PriceBand
+    ) {
         for (widgetId in widgetIds) {
             val views = RemoteViews(context.packageName, R.layout.price_widget)
-            views.setTextViewText(R.id.price_text, displayText)
+            views.setTextViewText(R.id.price_text, priceText)
             views.setTextViewText(R.id.last_updated_text, updatedText)
             views.setViewVisibility(R.id.content_container, View.VISIBLE)
             views.setViewVisibility(R.id.loading_indicator, View.INVISIBLE)
@@ -74,6 +137,40 @@ object WidgetUpdateUtil {
             views.setOnClickPendingIntent(R.id.widget_root, buildManualRefreshIntent(context))
             appWidgetManager.updateAppWidget(widgetId, views)
         }
+    }
+
+    /**
+     * Renders the explicit "unavailable" state: the unavailable string,
+     * the UNKNOWN (grey) band, and the current time as the last-attempted
+     * timestamp.
+     */
+    private fun renderUnavailable(context: Context, appWidgetManager: AppWidgetManager, widgetIds: IntArray) {
+        val band = PriceBand.UNKNOWN
+        val priceText = context.getString(R.string.price_unavailable)
+        val updatedText = formatLastUpdated(context, System.currentTimeMillis())
+        saveLastBand(context, band)
+        renderWidgets(context, appWidgetManager, widgetIds, priceText, updatedText, band)
+    }
+
+    /**
+     * Redraws every widget instance with the last successfully fetched
+     * price, used whenever refreshAllWidgets decides this tick should
+     * prefer stale data over an explicit unavailable state. Falls back to
+     * the unavailable/placeholder strings if no successful fetch has ever
+     * completed.
+     */
+    private fun renderLastGoodState(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        widgetIds: IntArray
+    ) {
+        val state = loadLastGoodState(context)
+        // Keep the spinner-coloring band (see showLoadingState) consistent
+        // with what's actually on screen right now.
+        saveLastBand(context, state.band)
+        val updatedText = state.updatedMillis?.let { formatLastUpdated(context, it) }
+            ?: context.getString(R.string.time_placeholder)
+        renderWidgets(context, appWidgetManager, widgetIds, state.priceText, updatedText, state.band)
     }
 
     /**
@@ -101,8 +198,7 @@ object WidgetUpdateUtil {
         }
     }
 
-    private fun formatPrice(context: Context, average: Double?): String {
-        if (average == null) return context.getString(R.string.price_unavailable)
+    private fun formatPrice(context: Context, average: Double): String {
         return String.format(Locale.US, "\u26A1 %.1f\u00A2", average)
     }
 
@@ -126,8 +222,7 @@ object WidgetUpdateUtil {
         UNKNOWN(R.drawable.widget_background_unknown)
     }
 
-    private fun bandFor(average: Double?): PriceBand {
-        if (average == null) return PriceBand.UNKNOWN
+    private fun bandFor(average: Double): PriceBand {
         return when {
             average < 8.0 -> PriceBand.GREEN
             average <= 14.0 -> PriceBand.ORANGE
@@ -148,6 +243,74 @@ object WidgetUpdateUtil {
         return stored?.let { name ->
             runCatching { PriceBand.valueOf(name) }.getOrNull()
         } ?: PriceBand.UNKNOWN
+    }
+
+    private data class LastGoodState(val priceText: String, val band: PriceBand, val updatedMillis: Long?)
+
+    private fun saveLastGoodState(context: Context, priceText: String, band: PriceBand, updatedMillis: Long) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_GOOD_PRICE_TEXT, priceText)
+            .putString(KEY_LAST_GOOD_BAND, band.name)
+            .putLong(KEY_LAST_GOOD_UPDATED_MILLIS, updatedMillis)
+            .apply()
+    }
+
+    private fun loadLastGoodState(context: Context): LastGoodState {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val priceText = prefs.getString(KEY_LAST_GOOD_PRICE_TEXT, null)
+            ?: context.getString(R.string.price_unavailable)
+        val band = prefs.getString(KEY_LAST_GOOD_BAND, null)?.let { name ->
+            runCatching { PriceBand.valueOf(name) }.getOrNull()
+        } ?: PriceBand.UNKNOWN
+        val updatedMillis = if (prefs.contains(KEY_LAST_GOOD_UPDATED_MILLIS)) {
+            prefs.getLong(KEY_LAST_GOOD_UPDATED_MILLIS, 0L)
+        } else {
+            null
+        }
+        return LastGoodState(priceText, band, updatedMillis)
+    }
+
+    /**
+     * True if the device currently has a network connection with
+     * confirmed internet access. This only catches client-side-visible
+     * unavailability (airplane mode, no signal, Wi-Fi association without
+     * internet, etc.) — it can't detect Doze's per-app background network
+     * suspension in advance, since the OS doesn't expose that as a
+     * queryable state ahead of an attempt. That case is instead handled
+     * after the fact, by combining a connectivity-like fetch failure with
+     * isDeviceIdleModeActive() below.
+     */
+    private fun isNetworkAvailable(context: Context): Boolean {
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return true // Can't determine; fail open rather than silently never refreshing.
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        } else {
+            @Suppress("DEPRECATION")
+            connectivityManager.activeNetworkInfo?.isConnected == true
+        }
+    }
+
+    /**
+     * True if the device is currently in Doze's idle mode. Used only as
+     * a post-failure signal (see refreshAllWidgets), never to decide
+     * whether to attempt a fetch in the first place — the device can
+     * still have working network access during a specific alarm-granted
+     * execution window even while this reports true, so gating the
+     * attempt on it would skip ticks that were likely to succeed.
+     * Doze doesn't exist before API 23, so this is unconditionally false
+     * on older devices.
+     */
+    private fun isDeviceIdleModeActive(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
+        return powerManager.isDeviceIdleMode
     }
 
     /** Tapping the widget sends this broadcast, which triggers an immediate refresh. */
