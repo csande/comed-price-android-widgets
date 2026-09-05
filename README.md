@@ -1,4 +1,4 @@
-# ComEd Price Widget
+# ComEd Price Android Widget
 
 A 1×1 homescreen widget that shows the current ComEd hourly electricity
 price, e.g. `⚡2.3¢`.
