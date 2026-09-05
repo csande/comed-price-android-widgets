@@ -59,16 +59,21 @@ object ComedApiClient {
      * a fetch failure: the request succeeded, but the data it returned
      * is out of date.
      *
-     * 15 minutes was chosen as 3x the feed's normal 5-minute publish
-     * cadence: comfortably beyond a single missed or delayed publish
-     * (ComEd's feed occasionally lags by a few minutes under normal
-     * operation), while still catching a genuine feed outage well within
-     * a few ticks of this widget's own 5-minute refresh chain. A tighter
-     * value (e.g. 10 minutes, exactly 2x the publish cadence) would
-     * trigger "unavailable" more readily on routine minor lag; a looser
-     * value would let a real outage go undetected for longer.
+     * 20 minutes accounts for two independent, compounding sources of
+     * age rather than just ComEd's publish lag in isolation: the widget's
+     * own 5-minute poll cadence isn't synchronized to ComEd's publish
+     * schedule, so a poll can land just before a new point is published
+     * and only catch the previous one. Under entirely normal operation
+     * that can push the observed age to roughly (publish lag + one poll
+     * interval) — e.g. a ~4 minute publish lag plus a poorly-timed poll
+     * can routinely show up as 8-9 minutes old, not just as a rare
+     * fluke. 20 minutes restores a meaningful margin (about one extra
+     * widget tick) above that realistic worst-normal case, while still
+     * flagging a genuine feed outage within a few ticks of it starting,
+     * since an outage adds a full 5 minutes of age on every subsequent
+     * tick with nothing to reset it.
      */
-    private const val FEED_STALENESS_THRESHOLD_MINUTES = 15.0
+    private const val FEED_STALENESS_THRESHOLD_MINUTES = 20.0
 
     /**
      * Total attempts made for a single fetch before giving up and
