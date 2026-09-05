@@ -45,7 +45,7 @@ object WidgetUpdateUtil {
     private const val KEY_LAST_TICK_MILLIS = "last_chain_tick_millis"
     private const val KEY_LAST_GOOD_PRICE_TEXT = "last_good_price_text"
     private const val KEY_LAST_GOOD_BAND = "last_good_band"
-    private const val KEY_LAST_GOOD_UPDATED_MILLIS = "last_good_updated_millis"
+    private const val KEY_LAST_GOOD_FEED_TIMESTAMP_MILLIS = "last_good_feed_timestamp_millis"
 
     // ---- Widget content -----------------------------------------------
 
@@ -60,8 +60,13 @@ object WidgetUpdateUtil {
      * would be redundant and would leave the widget stale immediately
      * after a short screen-off period.
      *
-     * Three cases redisplay the last successfully fetched price instead
-     * of overwriting the widget with "unavailable":
+     * The displayed time is the feed's own timestamp for its most recent
+     * data point, not when this device happened to poll — see
+     * ComedApiClient.PriceResult.Available for why.
+     *
+     * Two cases redisplay the last successfully fetched price (and its
+     * feed timestamp) instead of overwriting the widget with
+     * "unavailable":
      *  - No usable network connection is detected up front (skips the
      *    fetch attempt entirely).
      *  - The fetch was attempted but failed in a way that never got as
@@ -92,11 +97,10 @@ object WidgetUpdateUtil {
             is ComedApiClient.PriceResult.Available -> {
                 val band = bandFor(result.average)
                 val priceText = formatPrice(context, result.average)
-                val nowMillis = System.currentTimeMillis()
-                val updatedText = formatLastUpdated(context, nowMillis)
+                val updatedText = formatLastUpdated(context, result.feedTimestampMillis)
 
                 saveLastBand(context, band)
-                saveLastGoodState(context, priceText, band, nowMillis)
+                saveLastGoodState(context, priceText, band, result.feedTimestampMillis)
                 renderWidgets(context, appWidgetManager, widgetIds, priceText, updatedText, band)
             }
             is ComedApiClient.PriceResult.FeedStale -> {
@@ -141,23 +145,24 @@ object WidgetUpdateUtil {
 
     /**
      * Renders the explicit "unavailable" state: the unavailable string,
-     * the UNKNOWN (grey) band, and the current time as the last-attempted
-     * timestamp.
+     * the UNKNOWN (grey) band, and the placeholder time — there's no
+     * price behind this state, so there's no feed timestamp to attach to
+     * it either.
      */
     private fun renderUnavailable(context: Context, appWidgetManager: AppWidgetManager, widgetIds: IntArray) {
         val band = PriceBand.UNKNOWN
         val priceText = context.getString(R.string.price_unavailable)
-        val updatedText = formatLastUpdated(context, System.currentTimeMillis())
+        val updatedText = context.getString(R.string.time_placeholder)
         saveLastBand(context, band)
         renderWidgets(context, appWidgetManager, widgetIds, priceText, updatedText, band)
     }
 
     /**
      * Redraws every widget instance with the last successfully fetched
-     * price, used whenever refreshAllWidgets decides this tick should
-     * prefer stale data over an explicit unavailable state. Falls back to
-     * the unavailable/placeholder strings if no successful fetch has ever
-     * completed.
+     * price and its feed timestamp, used whenever refreshAllWidgets
+     * decides this tick should prefer stale data over an explicit
+     * unavailable state. Falls back to the unavailable/placeholder
+     * strings if no successful fetch has ever completed.
      */
     private fun renderLastGoodState(
         context: Context,
@@ -168,7 +173,7 @@ object WidgetUpdateUtil {
         // Keep the spinner-coloring band (see showLoadingState) consistent
         // with what's actually on screen right now.
         saveLastBand(context, state.band)
-        val updatedText = state.updatedMillis?.let { formatLastUpdated(context, it) }
+        val updatedText = state.feedTimestampMillis?.let { formatLastUpdated(context, it) }
             ?: context.getString(R.string.time_placeholder)
         renderWidgets(context, appWidgetManager, widgetIds, state.priceText, updatedText, state.band)
     }
@@ -204,7 +209,9 @@ object WidgetUpdateUtil {
 
     /**
      * Formats the given time using the device's own 12h/24h clock
-     * preference, so the widget shows when it was last actually refreshed.
+     * preference. Callers pass the feed's own timestamp for its most
+     * recent data point (not "when this device polled"), so this reflects
+     * how current the displayed price actually is.
      */
     private fun formatLastUpdated(context: Context, millis: Long): String {
         return DateFormat.getTimeFormat(context).format(Date(millis))
@@ -245,14 +252,14 @@ object WidgetUpdateUtil {
         } ?: PriceBand.UNKNOWN
     }
 
-    private data class LastGoodState(val priceText: String, val band: PriceBand, val updatedMillis: Long?)
+    private data class LastGoodState(val priceText: String, val band: PriceBand, val feedTimestampMillis: Long?)
 
-    private fun saveLastGoodState(context: Context, priceText: String, band: PriceBand, updatedMillis: Long) {
+    private fun saveLastGoodState(context: Context, priceText: String, band: PriceBand, feedTimestampMillis: Long) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_LAST_GOOD_PRICE_TEXT, priceText)
             .putString(KEY_LAST_GOOD_BAND, band.name)
-            .putLong(KEY_LAST_GOOD_UPDATED_MILLIS, updatedMillis)
+            .putLong(KEY_LAST_GOOD_FEED_TIMESTAMP_MILLIS, feedTimestampMillis)
             .apply()
     }
 
@@ -263,12 +270,12 @@ object WidgetUpdateUtil {
         val band = prefs.getString(KEY_LAST_GOOD_BAND, null)?.let { name ->
             runCatching { PriceBand.valueOf(name) }.getOrNull()
         } ?: PriceBand.UNKNOWN
-        val updatedMillis = if (prefs.contains(KEY_LAST_GOOD_UPDATED_MILLIS)) {
-            prefs.getLong(KEY_LAST_GOOD_UPDATED_MILLIS, 0L)
+        val feedTimestampMillis = if (prefs.contains(KEY_LAST_GOOD_FEED_TIMESTAMP_MILLIS)) {
+            prefs.getLong(KEY_LAST_GOOD_FEED_TIMESTAMP_MILLIS, 0L)
         } else {
             null
         }
-        return LastGoodState(priceText, band, updatedMillis)
+        return LastGoodState(priceText, band, feedTimestampMillis)
     }
 
     /**

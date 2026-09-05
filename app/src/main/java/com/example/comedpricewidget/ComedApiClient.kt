@@ -103,7 +103,12 @@ object ComedApiClient {
      * Double so the caller can tell apart three situations that all used
      * to collapse into "null" and get the same "price unavailable"
      * treatment:
-     *  - Available: a real, fresh price.
+     *  - Available: a real, fresh price, along with the feed's own
+     *    timestamp for its most recent data point (feedTimestampMillis).
+     *    The widget displays this timestamp rather than "when the device
+     *    last polled", since it's the more useful answer to "how current
+     *    is this number" — the two can differ by several minutes even in
+     *    normal operation, since ComEd's own publishing has some lag.
      *  - FeedStale: the request succeeded, but the feed's own most recent
      *    data point is too old to trust (see FEED_STALENESS_THRESHOLD_MINUTES).
      *    Always shown as unavailable — the data that came back isn't
@@ -120,7 +125,7 @@ object ComedApiClient {
      *    showing a stale price instead of "unavailable".
      */
     sealed class PriceResult {
-        data class Available(val average: Double) : PriceResult()
+        data class Available(val average: Double, val feedTimestampMillis: Long) : PriceResult()
         object FeedStale : PriceResult()
         data class FetchFailed(val likelyConnectivityIssue: Boolean) : PriceResult()
     }
@@ -190,7 +195,7 @@ object ComedApiClient {
                     return PriceResult.FetchFailed(likelyConnectivityIssue = false)
                 }
 
-                return PriceResult.Available(weightedSum / weightTotal)
+                return PriceResult.Available(weightedSum / weightTotal, mostRecentMillis)
             }
         }
     }
