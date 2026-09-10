@@ -1,4 +1,4 @@
-package com.example.comedpricewidget
+package com.github.csande.comedpricewidget
 
 import android.content.BroadcastReceiver
 import android.content.Context

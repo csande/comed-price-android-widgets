@@ -69,7 +69,7 @@ device is idle.
 ## Project structure
 
 ```
-app/src/main/java/com/example/comedpricewidget/
+app/src/main/java/com/github/csande/comedpricewidget/
   ComedApiClient.kt         Fetches the ComEd feed and computes the average
   WidgetUpdateUtil.kt       Shared logic: renders widget views, schedules
                             the alarm chain and WorkManager fallback

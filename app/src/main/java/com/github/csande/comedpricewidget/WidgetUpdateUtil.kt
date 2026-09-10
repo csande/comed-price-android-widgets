@@ -1,4 +1,4 @@
-package com.example.comedpricewidget
+package com.github.csande.comedpricewidget
 
 import android.app.AlarmManager
 import android.app.PendingIntent
