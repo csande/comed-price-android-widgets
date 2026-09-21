@@ -1,6 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ComEd Price Widget</string>
+    <string name="app_name">ComEd Price Widgets</string>
     <string name="price_unavailable">⚡ — ¢</string>
     <string name="time_placeholder">—:—</string>
+
+    <!-- Shown as this widget's name in the system widget picker (via the
+         android:label on each <receiver> in AndroidManifest.xml), since
+         the app now offers two widgets and needs to distinguish them. -->
+    <string name="price_widget_label">Current Price</string>
+    <string name="price_trend_widget_label">Price Trend</string>
+
+    <!-- Trend widget content -->
+    <string name="trend_widget_title">ComEd Live Prices</string>
+    <string name="trend_widget_link_label"><u>https://hourlypricing.comed.com/live-prices/</u></string>
+    <string name="trend_widget_chart_content_description">Price trend chart</string>
+    <string name="trend_widget_refresh_content_description">Refresh now</string>
+
+    <!-- Trend widget configuration screen -->
+    <string name="trend_configure_title">Configure Price Trend Widget</string>
+    <string name="trend_configure_chart_style_label">Chart style</string>
+    <string name="trend_configure_chart_style_line">Line</string>
+    <string name="trend_configure_chart_style_bar">Bar</string>
+    <string name="trend_configure_history_label">Trend history</string>
+    <string name="trend_configure_save">Save</string>
 </resources>

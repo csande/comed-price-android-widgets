@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fixed, theme-adaptive background for the trend widget, unlike the
+  compact widget's band-colored drawables, this never changes with price;
+  the price is instead conveyed by the chart's line/bar coloring (see
+  PriceChartRenderer) and the price text. ?android:attr/colorBackground
+  resolves to the current system light/dark background at inflate time
+  (the same resolution the widget host itself uses), so this tracks the
+  device's theme the same way standard system widgets like Gmail,
+  Calendar, and News do, rather than being hardcoded to one appearance.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?android:attr/colorBackground" />
+    <corners android:radius="16dp" />
+</shape>

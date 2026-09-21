@@ -17,13 +17,17 @@ class PriceWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onEnabled(context: Context) {
-        // Called once, when the first widget instance is placed.
+        // Called once, when the first instance of *this* widget type is
+        // placed (even if instances of PriceTrendWidgetProvider already
+        // exist and already started the chain) -- redundant but harmless.
         WidgetUpdateUtil.initializeWidgetUpdates(context)
     }
 
     override fun onDisabled(context: Context) {
-        // Called once, when the last widget instance is removed.
-        WidgetUpdateUtil.cancelAlarm(context)
-        WidgetUpdateUtil.cancelWatchdog(context)
+        // Called once, when the last instance of *this* widget type is
+        // removed -- the trend widget may still have instances placed,
+        // so the shared alarm/watchdog chain is only actually torn down
+        // once neither widget type has any instances left.
+        WidgetUpdateUtil.handleWidgetProviderInstancesRemoved(context)
     }
 }

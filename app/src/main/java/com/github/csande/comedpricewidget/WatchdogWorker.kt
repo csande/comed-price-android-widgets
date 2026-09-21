@@ -1,7 +1,5 @@
 package com.github.csande.comedpricewidget
 
-import android.appwidget.AppWidgetManager
-import android.content.ComponentName
 import android.content.Context
 import androidx.work.Worker
 import androidx.work.WorkerParameters
@@ -21,11 +19,7 @@ import androidx.work.WorkerParameters
  */
 class WatchdogWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
-        val appWidgetManager = AppWidgetManager.getInstance(applicationContext)
-        val widgetIds = appWidgetManager.getAppWidgetIds(
-            ComponentName(applicationContext, PriceWidgetProvider::class.java)
-        )
-        if (widgetIds.isEmpty()) return Result.success()
+        if (!WidgetUpdateUtil.hasAnyWidgetsPlaced(applicationContext)) return Result.success()
 
         if (WidgetUpdateUtil.isChainStale(applicationContext)) {
             WidgetUpdateUtil.enqueueImmediateRefresh(applicationContext)

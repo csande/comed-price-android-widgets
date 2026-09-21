@@ -101,7 +101,14 @@ object ComedApiClient {
      */
     private val RETRYABLE_HTTP_CODES = setOf(429, 500, 502, 503, 504)
 
-    private data class PricePoint(val millisUtc: Long, val price: Double)
+    /**
+     * A single 5-minute feed reading. Public (unlike previously, when
+     * this was a private implementation detail) so callers that need
+     * more than the single weighted average — currently just the trend
+     * widget's chart, see PriceChartRenderer — can consume the raw
+     * series returned alongside it in PriceResult.Available.
+     */
+    data class PricePoint(val millisUtc: Long, val price: Double)
 
     /**
      * The outcome of fetchPrice(). Deliberately more than a nullable
@@ -109,11 +116,15 @@ object ComedApiClient {
      * to collapse into "null" and get the same "price unavailable"
      * treatment:
      *  - Available: a real, fresh price, along with the feed's own
-     *    timestamp for its most recent data point (feedTimestampMillis).
-     *    The widget displays this timestamp rather than "when the device
-     *    last polled", since it's the more useful answer to "how current
-     *    is this number" — the two can differ by several minutes even in
-     *    normal operation, since ComEd's own publishing has some lag.
+     *    timestamp for its most recent data point (feedTimestampMillis)
+     *    and the full set of points this tick's fetch returned (points).
+     *    The widget displays feedTimestampMillis rather than "when the
+     *    device last polled", since it's the more useful answer to "how
+     *    current is this number" — the two can differ by several minutes
+     *    even in normal operation, since ComEd's own publishing has some
+     *    lag. points is the raw, unfiltered series (oldest first is not
+     *    guaranteed — see mostRecentMillis's own max-based comment
+     *    below); the trend widget filters and sorts it as needed.
      *  - FeedStale: the request succeeded, but the feed's own most recent
      *    data point is too old to trust (see FEED_STALENESS_THRESHOLD_MINUTES).
      *    Always shown as unavailable — the data that came back isn't
@@ -130,7 +141,11 @@ object ComedApiClient {
      *    showing a stale price instead of "unavailable".
      */
     sealed class PriceResult {
-        data class Available(val average: Double, val feedTimestampMillis: Long) : PriceResult()
+        data class Available(
+            val average: Double,
+            val feedTimestampMillis: Long,
+            val points: List<PricePoint>
+        ) : PriceResult()
         object FeedStale : PriceResult()
         data class FetchFailed(val likelyConnectivityIssue: Boolean) : PriceResult()
     }
@@ -200,7 +215,7 @@ object ComedApiClient {
                     return PriceResult.FetchFailed(likelyConnectivityIssue = false)
                 }
 
-                return PriceResult.Available(weightedSum / weightTotal, mostRecentMillis)
+                return PriceResult.Available(weightedSum / weightTotal, mostRecentMillis, points)
             }
         }
     }

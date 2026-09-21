@@ -1,30 +1,48 @@
-# ComEd Price Android Widget
+# ComEd Price Widgets
 
-A 1×1 homescreen widget that shows the current ComEd hourly electricity
-price, e.g. `⚡2.3¢`.
+Two homescreen widgets showing the current ComEd hourly electricity price:
 
-## What it displays
+- **Current Price** — a small 1×1 widget showing just the price and last-
+  updated time, e.g. `⚡2.3¢`.
+- **Price Trend** — a larger, freely resizable widget (from a small
+  multi-cell size up to full screen width/height) showing the current
+  price plus a short-term trend chart, with a configuration screen for
+  chart style (line or bar) and how many hours of history to show. Unlike
+  Current Price, its background does not change with the price band — it
+  stays a plain, theme-adaptive card (matching the look of standard
+  Android widgets like Gmail, Calendar, and News), and the price is
+  conveyed instead by the chart's line/bar coloring and the price text.
 
-The value shown is an exponentially-weighted average of 5-minute price
+## What they display
+
+The price shown is an exponentially-weighted average of 5-minute price
 points from ComEd's API
 (`https://hourlypricing.comed.com/api?type=5minutefeed`), anchored on the
 most recent data point. Recent prices count more than older ones, fading
 out smoothly by age rather than a hard cutoff — see `ComedApiClient.kt`
-for the tunable half-life.
+for the tunable half-life. Both widgets are driven by the same fetch each
+tick; the Price Trend widget additionally keeps the raw points from that
+fetch to draw its chart.
 
-If the network request fails for any reason, the widget shows `⚡No data`
-rather than a stale value.
+If the network request fails, or ComEd's feed itself hasn't published a
+new point recently enough to trust, both widgets show `⚡ — ¢` rather than
+a stale-looking value — except when a fetch fails in a way that looks
+like "no network was available at all" while the device is in Doze idle
+mode, in which case the last known-good price (and, for Price Trend, its
+chart) is redisplayed instead. See the comments on
+`WidgetUpdateUtil.refreshAllWidgets` for the exact reasoning.
 
-Tapping the widget triggers an immediate refresh, rather than waiting for
-the next scheduled 5-minute update.
+Tapping either widget's background triggers an immediate refresh, rather
+than waiting for the next scheduled 5-minute update. On the Price Trend
+widget, tapping the small "ComEd Live Prices" link instead opens ComEd's
+live-prices page in the browser.
 
-The 5-minute background refresh is skipped whenever the screen is off
-(checked via `PowerManager.isInteractive()`), since there's no point
-spending a network fetch and battery on an update nobody can see. The
-alarm chain itself keeps firing on schedule regardless — each firing
-just checks the screen state and no-ops if it's off — so a refresh
-happens promptly at whichever 5-minute tick the screen is next on for,
-and a manual tap always refreshes immediately regardless of this check.
+There is no screen-off check anywhere in the refresh path — the 5-minute
+background refresh runs unconditionally on every alarm tick, regardless
+of whether the screen is on. AlarmManager's own Doze-aware throttling
+(`setExactAndAllowWhileIdle` / `setAndAllowWhileIdle`) is what limits how
+often updates actually happen during long idle stretches; there's no
+separate app-level screen-state gate layered on top of it.
 
 ## Opening the project
 
@@ -38,10 +56,17 @@ and a manual tap always refreshes immediately regardless of this check.
 4. **Build > Build Bundle(s) / APK(s) > Build APK(s)** to produce an APK,
    or **Run** to install it on a connected device/emulator directly.
 
-## Adding the widget
+## Adding a widget
 
-Long-press the homescreen → **Widgets** → **ComEd Price Widget** → drag
-it onto the screen. It occupies a single 1×1 cell.
+Long-press the homescreen → **Widgets** → **ComEd Price Widgets** →
+choose **Current Price** or **Price Trend** → drag it onto the screen.
+
+- **Current Price** occupies a single 1×1 cell.
+- **Price Trend** is placed at a 3×2 default size and can be freely
+  resized afterward in both directions, up to the full screen. Placing
+  it opens a one-time configuration screen (also reachable later by
+  removing and re-adding it, or via the launcher's widget-reconfigure
+  gesture where supported) to choose the chart style and history window.
 
 ## One-time setup for reliable 5-minute refreshes (recommended)
 
@@ -49,43 +74,79 @@ Android does not natively allow a widget to refresh faster than every 30
 minutes through its standard update mechanism, so this app schedules its
 own alarms (`AlarmManager.setExactAndAllowWhileIdle`) to hit the 5-minute
 cadence, backed by a 15-minute WorkManager job as a fallback in case the
-alarm chain gets interrupted. Two OS-level settings affect how reliably
-this runs in the background:
+alarm chain gets interrupted. This one chain drives both widgets — it
+starts as soon as either widget type has at least one instance placed,
+and only stops once neither does. Two OS-level settings affect how
+reliably it runs in the background:
 
 1. **Alarms & reminders** (Android 12+ / API 31+ only): open
-   **Settings → Apps → ComEd Price Widget → Alarms & reminders** and
+   **Settings → Apps → ComEd Price Widgets → Alarms & reminders** and
    enable it. Without this, refreshes fall back to an inexact alarm that
    the OS may delay, especially in Doze mode.
 2. **Battery optimization**: open **Settings → Apps → ComEd Price
-   Widget → Battery**, and choose **Unrestricted** (wording varies by
+   Widgets → Battery**, and choose **Unrestricted** (wording varies by
    Android version/OEM: "Don't optimize" / "No restrictions"). This
    matters most on Samsung, Xiaomi, and other OEM skins with aggressive
    background-kill policies.
 
 Neither step is required for the app to function — without them the
-widget still refreshes, just potentially less punctually while the
+widgets still refresh, just potentially less punctually while the
 device is idle.
 
 ## Project structure
 
 ```
 app/src/main/java/com/github/csande/comedpricewidget/
-  ComedApiClient.kt         Fetches the ComEd feed and computes the average
-  WidgetUpdateUtil.kt       Shared logic: renders widget views, schedules
-                            the alarm chain and WorkManager fallback
-  RefreshWorker.kt          WorkManager Worker that performs the refresh
-                            (no-ops if the screen is currently off)
-  PriceAlarmReceiver.kt     Fires every 5 minutes, reschedules itself
-  ManualRefreshReceiver.kt  Handles the widget's tap-to-refresh
-  BootReceiver.kt           Re-arms scheduling after a device reboot
-  PriceWidgetProvider.kt    AppWidgetProvider: widget lifecycle
+  ComedApiClient.kt                    Fetches the ComEd feed, computes the
+                                        weighted average, and returns the
+                                        raw points used by the trend chart
+  WidgetUpdateUtil.kt                  Shared logic: renders both widgets'
+                                        views, schedules the shared alarm
+                                        chain and WorkManager fallback, and
+                                        manages per-trend-widget config
+  PriceChartRenderer.kt                Draws the trend chart (line or bar)
+                                        onto a Bitmap for the trend widget
+  RefreshWorker.kt                     WorkManager Worker that performs the
+                                        refresh for both widgets
+  PriceWidgetProvider.kt               AppWidgetProvider: Current Price
+                                        widget lifecycle
+  PriceTrendWidgetProvider.kt          AppWidgetProvider: Price Trend widget
+                                        lifecycle, resize, and per-instance
+                                        cleanup
+  PriceTrendWidgetConfigureActivity.kt Chart style / history-hours config
+                                        screen shown when a Price Trend
+                                        widget is placed
+  PriceAlarmReceiver.kt                Fires every 5 minutes, hands off to
+                                        WorkManager
+  ManualRefreshReceiver.kt             Handles tap-to-refresh for both
+                                        widgets
+  BootReceiver.kt                      Re-arms scheduling after a device
+                                        reboot
+  WatchdogWorker.kt                    Periodic fallback that restarts the
+                                        chain if it's gone stale
 
 app/src/main/res/
-  layout/price_widget.xml            Widget layout (price text + spinner)
-  xml/price_widget_info.xml          Widget metadata (1x1 size, etc.)
-  drawable/widget_background_*.xml   Rounded backgrounds, one per price band
-  values/colors.xml                  Text color + one color per price band
-  mipmap-anydpi-v26/                 Adaptive launcher icon
+  layout/price_widget.xml                       Current Price widget layout
+  layout/price_trend_widget.xml                 Price Trend widget layout
+  layout/activity_price_trend_widget_configure.xml
+                                                 Price Trend config screen layout
+  xml/price_widget_info.xml                     Current Price widget metadata
+  xml/price_trend_widget_info.xml               Price Trend widget metadata
+                                                 (resizable, has a configure
+                                                 activity)
+  drawable/widget_background_{green,orange,red,unknown}.xml
+                                                 Rounded, price-band-colored
+                                                 backgrounds used only by
+                                                 Current Price
+  drawable/widget_background_neutral.xml        Fixed, theme-adaptive card
+                                                 background used by Price
+                                                 Trend (see above)
+  values/colors.xml                             Text color + one color per
+                                                 price band
+  values/strings.xml                             App name, widget picker
+                                                 labels, and widget/config
+                                                 screen text
+  mipmap-anydpi-v26/                            Adaptive launcher icon
 ```
 
 ## Attribution
@@ -96,15 +157,27 @@ voltage sign" (U+26A1) glyph, from
 licensed under the
 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
 
+The Price Trend widget's chart layout and behavior are ported from a
+companion KDE Plasma widget (line/bar trend chart with band-colored
+segments, nice-number axis ticks, and a configurable history window),
+adapted here to Android's RemoteViews/Bitmap-based widget model.
+
 ## Notes / possible future improvements
 
-- The app has no launcher activity by design (it's widget-only); to
-  reach its system settings page, go through **Settings → Apps → See
-  all apps → ComEd Price Widget** rather than the app drawer.
+- The app has no launcher activity by design (it's widget-only, aside
+  from the Price Trend configuration screen); to reach its system
+  settings page, go through **Settings → Apps → See all apps → ComEd
+  Price Widgets** rather than the app drawer.
 - The API is queried via its default "last 24 hours" endpoint rather
   than the custom time-range endpoint, to avoid ambiguity about which
   timezone the custom endpoint's `datestart`/`dateend` parameters expect.
   This means each refresh downloads slightly more data than strictly
   necessary (roughly 288 small JSON records), which is a reasonable
   trade-off for correctness but could be tightened later.
+- The Price Trend widget's chart Bitmap is sized from an approximation
+  of the widget's laid-out pixel dimensions (RemoteViews has no way to
+  measure the actual ImageView before rendering into it) — see the
+  comment on `WidgetUpdateUtil.computeChartPixelSize` for the constants
+  involved if the chart ever looks noticeably cropped or under-filled at
+  unusual widget sizes.
 - 

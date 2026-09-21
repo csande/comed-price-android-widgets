@@ -22,6 +22,7 @@
 
         <receiver
             android:name=".PriceWidgetProvider"
+            android:label="@string/price_widget_label"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -30,6 +31,26 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/price_widget_info" />
         </receiver>
+
+        <receiver
+            android:name=".PriceTrendWidgetProvider"
+            android:label="@string/price_trend_widget_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/price_trend_widget_info" />
+        </receiver>
+
+        <activity
+            android:name=".PriceTrendWidgetConfigureActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
 
         <receiver
             android:name=".PriceAlarmReceiver"
