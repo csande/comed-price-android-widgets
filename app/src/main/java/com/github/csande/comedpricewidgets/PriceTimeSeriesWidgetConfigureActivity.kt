@@ -8,10 +8,10 @@ import android.widget.NumberPicker
 import android.widget.RadioGroup
 
 /**
- * Shown once when a trend widget is placed (per the "configure" attribute
- * in price_trend_widget_info.xml), and again if the user chooses to
+ * Shown once when a time series widget is placed (per the "configure" attribute
+ * in price_time_series_widget_info.xml), and again if the user chooses to
  * reconfigure it. Lets the person pick the chart style (Line/Bar) and how
- * many hours of history the trend chart covers — the same two settings
+ * many hours the time series chart covers — the same two settings
  * the KDE widget exposes in ConfigGeneral.qml, ported here to their own
  * Activity since AppWidget configuration on Android needs one (RemoteViews
  * has no config-screen mechanism of its own).
@@ -21,7 +21,7 @@ import android.widget.RadioGroup
  * system back button) removes the half-placed widget instead of leaving
  * it stuck with no configuration.
  */
-class PriceTrendWidgetConfigureActivity : Activity() {
+class PriceTimeSeriesWidgetConfigureActivity : Activity() {
 
     private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
 
@@ -31,7 +31,7 @@ class PriceTrendWidgetConfigureActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setResult(RESULT_CANCELED)
-        setContentView(R.layout.activity_price_trend_widget_configure)
+        setContentView(R.layout.activity_price_time_series_widget_configure)
 
         appWidgetId = intent?.extras?.getInt(
             AppWidgetManager.EXTRA_APPWIDGET_ID,
@@ -45,15 +45,15 @@ class PriceTrendWidgetConfigureActivity : Activity() {
 
         chartStyleRadioGroup = findViewById(R.id.chart_style_radio_group)
         graphHoursPicker = findViewById(R.id.graph_hours_picker)
-        graphHoursPicker.minValue = WidgetUpdateUtil.MIN_TREND_GRAPH_HOURS
-        graphHoursPicker.maxValue = WidgetUpdateUtil.MAX_TREND_GRAPH_HOURS
-        graphHoursPicker.displayedValues = (WidgetUpdateUtil.MIN_TREND_GRAPH_HOURS..WidgetUpdateUtil.MAX_TREND_GRAPH_HOURS)
+        graphHoursPicker.minValue = WidgetUpdateUtil.MIN_TIME_SERIES_GRAPH_HOURS
+        graphHoursPicker.maxValue = WidgetUpdateUtil.MAX_TIME_SERIES_GRAPH_HOURS
+        graphHoursPicker.displayedValues = (WidgetUpdateUtil.MIN_TIME_SERIES_GRAPH_HOURS..WidgetUpdateUtil.MAX_TIME_SERIES_GRAPH_HOURS)
             .map { hours -> if (hours == 1) "1 hour" else "$hours hours" }
             .toTypedArray()
 
         // Prefills from any existing config -- this same activity handles
         // both initial placement (defaults) and later reconfiguration.
-        val existingConfig = WidgetUpdateUtil.loadTrendWidgetConfig(this, appWidgetId)
+        val existingConfig = WidgetUpdateUtil.loadTimeSeriesWidgetConfig(this, appWidgetId)
         chartStyleRadioGroup.check(
             if (existingConfig.chartStyle == PriceChartRenderer.ChartStyle.BAR) {
                 R.id.chart_style_bar_radio
@@ -72,15 +72,15 @@ class PriceTrendWidgetConfigureActivity : Activity() {
         } else {
             PriceChartRenderer.ChartStyle.LINE
         }
-        val config = WidgetUpdateUtil.TrendWidgetConfig(chartStyle, graphHoursPicker.value)
-        WidgetUpdateUtil.saveTrendWidgetConfig(this, appWidgetId, config)
+        val config = WidgetUpdateUtil.TimeSeriesWidgetConfig(chartStyle, graphHoursPicker.value)
+        WidgetUpdateUtil.saveTimeSeriesWidgetConfig(this, appWidgetId, config)
 
         // Renders immediately from whatever price data is already cached
         // (instant, no network wait) and also kicks off a real fetch in
         // case this is the very first widget placed and nothing has been
         // cached yet -- enqueueImmediateRefresh is idempotent/deduplicated,
         // so this is safe to call regardless.
-        WidgetUpdateUtil.renderSingleTrendWidget(this, appWidgetId)
+        WidgetUpdateUtil.renderSingleTimeSeriesWidget(this, appWidgetId)
         WidgetUpdateUtil.initializeWidgetUpdates(this)
 
         val resultValue = android.content.Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)

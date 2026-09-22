@@ -7,8 +7,8 @@
     android:targetCellWidth="4"
     android:targetCellHeight="2"
     android:updatePeriodMillis="0"
-    android:initialLayout="@layout/price_trend_widget"
-    android:configure="com.github.csande.comedpricewidgets.PriceTrendWidgetConfigureActivity"
+    android:initialLayout="@layout/price_time_series_widget"
+    android:configure="com.github.csande.comedpricewidgets.PriceTimeSeriesWidgetConfigureActivity"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:previewImage="@drawable/price_trend_widget_preview" />
+    android:previewImage="@drawable/price_time_series_widget_preview" />

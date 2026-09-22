@@ -104,7 +104,7 @@ object ComedApiClient {
     /**
      * A single 5-minute feed reading. Public (unlike previously, when
      * this was a private implementation detail) so callers that need
-     * more than the single weighted average — currently just the trend
+     * more than the single weighted average — currently just the time series
      * widget's chart, see PriceChartRenderer — can consume the raw
      * series returned alongside it in PriceResult.Available.
      */
@@ -124,7 +124,7 @@ object ComedApiClient {
      *    even in normal operation, since ComEd's own publishing has some
      *    lag. points is the raw, unfiltered series (oldest first is not
      *    guaranteed — see mostRecentMillis's own max-based comment
-     *    below); the trend widget filters and sorts it as needed.
+     *    below); the time series widget filters and sorts it as needed.
      *  - FeedStale: the request succeeded, but the feed's own most recent
      *    data point is too old to trust (see FEED_STALENESS_THRESHOLD_MINUTES).
      *    Always shown as unavailable — the data that came back isn't

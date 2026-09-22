@@ -16,8 +16,8 @@ import kotlin.math.min
 import kotlin.math.pow
 
 /**
- * Draws the trend chart shown by the large, resizable widget onto a
- * Bitmap, which PriceTrendWidgetProvider then pushes into a RemoteViews
+ * Draws the time series chart shown by the large, resizable widget onto a
+ * Bitmap, which PriceTimeSeriesWidgetProvider then pushes into a RemoteViews
  * ImageView -- RemoteViews has no way to host arbitrary custom drawing
  * directly (unlike the KDE widget's QML Canvas, which paints straight
  * into the popup), so a bitmap rendered here each refresh/resize/config
@@ -33,7 +33,7 @@ import kotlin.math.pow
  * essentially invisible, but the same stretch visibly distorted axis-label
  * text when text used to be drawn into this same bitmap. Axis labels are
  * now real TextViews laid out around this ImageView in
- * price_trend_widget.xml (immune to bitmap scaling, exactly like the
+ * price_time_series_widget.xml (immune to bitmap scaling, exactly like the
  * price/title text already was), and this function returns the label
  * strings alongside the bitmap so the caller can populate them.
  *
@@ -71,14 +71,14 @@ object PriceChartRenderer {
     private const val MARGIN_BOTTOM_PX = 0f
     private const val TICK_MARK_LENGTH_PX = 4f
 
-    /** Number of Y-axis gridlines/labels -- fixed, matching the 4 fixed label slots in price_trend_widget.xml. */
+    /** Number of Y-axis gridlines/labels -- fixed, matching the 4 fixed label slots in price_time_series_widget.xml. */
     private const val Y_AXIS_LABEL_COUNT = 4
 
     /**
      * The bitmap plus every axis label string the caller needs to
      * populate the surrounding TextViews with. yAxisLabelsTopToBottom
      * always has exactly Y_AXIS_LABEL_COUNT entries, top value first,
-     * matching price_trend_widget.xml's trend_y_label_top/upper_mid/
+     * matching price_time_series_widget.xml's time_series_y_label_top/upper_mid/
      * lower_mid/bottom order. All strings are empty and bitmap is null
      * when there's nothing to draw (see render()'s early return).
      */
@@ -101,7 +101,7 @@ object PriceChartRenderer {
     /**
      * Renders the chart at the given pixel size. points must be sorted
      * oldest-first and already filtered to the widget's configured
-     * history window (see WidgetUpdateUtil.filterHistory) -- this
+     * time series window (see WidgetUpdateUtil.filterTimeSeries) -- this
      * function draws exactly what it's given, with no filtering of its
      * own. Returns EMPTY_RESULT (null bitmap, blank labels) if there is
      * nothing to draw (empty points, or a non-positive size), so the
@@ -129,7 +129,7 @@ object PriceChartRenderer {
         val tickMarkLengthPx = TICK_MARK_LENGTH_PX * density
 
         // Theme-adaptive gridline color, matching the KDE port's use of
-        // the desktop theme's disabled-text color. The trend widget's
+        // the desktop theme's disabled-text color. The time series widget's
         // background is a plain light/dark card (see
         // widget_background_neutral.xml), not a saturated band color, so
         // this needs to track the system's light/dark state the same way
@@ -211,7 +211,7 @@ object PriceChartRenderer {
         // Since yFor() is a linear mapping anchored exactly on
         // yAxis.min/max, points evenly spaced by price are also evenly
         // spaced by pixel row -- which is what lets the fixed
-        // weight-based label column in price_trend_widget.xml line up
+        // weight-based label column in price_time_series_widget.xml line up
         // with these without knowing any pixel coordinates itself.
         // yAxisValues is ordered top (max) first to match that column's
         // top-to-bottom label order. These are short dashes rather than
@@ -231,7 +231,7 @@ object PriceChartRenderer {
         val yAxisLabels = yAxisValues.map { formatCents(it, yAxis.decimals) }
 
         // ---- X axis: start / middle / end label values (returned as
-        // strings, not drawn -- see trend_x_label_start/mid/end). ----
+        // strings, not drawn -- see time_series_x_label_start/mid/end). ----
         val xAxisLabelStart: String
         val xAxisLabelMid: String
         val xAxisLabelEnd: String

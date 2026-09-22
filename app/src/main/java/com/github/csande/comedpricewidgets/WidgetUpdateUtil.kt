@@ -53,47 +53,47 @@ object WidgetUpdateUtil {
     private const val KEY_LAST_GOOD_FEED_TIMESTAMP_MILLIS = "last_good_feed_timestamp_millis"
     private const val KEY_LAST_GOOD_RAW_POINTS_JSON = "last_good_raw_points_json"
 
-    // ---- Trend widget per-instance configuration ------------------------
+    // ---- Time series widget per-instance configuration ------------------------
     //
     // Kept in a separate SharedPreferences file from the shared price
-    // state above, keyed per appWidgetId: each placed trend widget has
-    // its own chart style / history-hours choice (set via
-    // PriceTrendWidgetConfigureActivity), independent of every other
+    // state above, keyed per appWidgetId: each placed time series widget has
+    // its own chart style / time-series-length choice (set via
+    // PriceTimeSeriesWidgetConfigureActivity), independent of every other
     // instance and of the compact widget, which has no configuration.
 
-    private const val TREND_PREFS_NAME = "comed_price_trend_widget_prefs"
+    private const val TIME_SERIES_PREFS_NAME = "comed_price_time_series_widget_prefs"
     private const val KEY_CHART_STYLE_PREFIX = "chart_style_"
     private const val KEY_GRAPH_HOURS_PREFIX = "graph_hours_"
 
-    const val MIN_TREND_GRAPH_HOURS = 1
-    const val MAX_TREND_GRAPH_HOURS = 24
-    private const val DEFAULT_TREND_GRAPH_HOURS = 2
+    const val MIN_TIME_SERIES_GRAPH_HOURS = 1
+    const val MAX_TIME_SERIES_GRAPH_HOURS = 24
+    private const val DEFAULT_TIME_SERIES_GRAPH_HOURS = 2
     private val DEFAULT_CHART_STYLE = PriceChartRenderer.ChartStyle.LINE
 
-    data class TrendWidgetConfig(val chartStyle: PriceChartRenderer.ChartStyle, val graphHours: Int)
+    data class TimeSeriesWidgetConfig(val chartStyle: PriceChartRenderer.ChartStyle, val graphHours: Int)
 
-    fun loadTrendWidgetConfig(context: Context, appWidgetId: Int): TrendWidgetConfig {
-        val prefs = context.getSharedPreferences(TREND_PREFS_NAME, Context.MODE_PRIVATE)
+    fun loadTimeSeriesWidgetConfig(context: Context, appWidgetId: Int): TimeSeriesWidgetConfig {
+        val prefs = context.getSharedPreferences(TIME_SERIES_PREFS_NAME, Context.MODE_PRIVATE)
         val styleIndex = prefs.getInt(
             KEY_CHART_STYLE_PREFIX + appWidgetId,
             PriceChartRenderer.indexFromChartStyle(DEFAULT_CHART_STYLE)
         )
-        val hours = prefs.getInt(KEY_GRAPH_HOURS_PREFIX + appWidgetId, DEFAULT_TREND_GRAPH_HOURS)
-            .coerceIn(MIN_TREND_GRAPH_HOURS, MAX_TREND_GRAPH_HOURS)
-        return TrendWidgetConfig(PriceChartRenderer.chartStyleFromIndex(styleIndex), hours)
+        val hours = prefs.getInt(KEY_GRAPH_HOURS_PREFIX + appWidgetId, DEFAULT_TIME_SERIES_GRAPH_HOURS)
+            .coerceIn(MIN_TIME_SERIES_GRAPH_HOURS, MAX_TIME_SERIES_GRAPH_HOURS)
+        return TimeSeriesWidgetConfig(PriceChartRenderer.chartStyleFromIndex(styleIndex), hours)
     }
 
-    fun saveTrendWidgetConfig(context: Context, appWidgetId: Int, config: TrendWidgetConfig) {
-        context.getSharedPreferences(TREND_PREFS_NAME, Context.MODE_PRIVATE)
+    fun saveTimeSeriesWidgetConfig(context: Context, appWidgetId: Int, config: TimeSeriesWidgetConfig) {
+        context.getSharedPreferences(TIME_SERIES_PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putInt(KEY_CHART_STYLE_PREFIX + appWidgetId, PriceChartRenderer.indexFromChartStyle(config.chartStyle))
             .putInt(KEY_GRAPH_HOURS_PREFIX + appWidgetId, config.graphHours)
             .apply()
     }
 
-    /** Called from PriceTrendWidgetProvider.onDeleted so removed instances don't leak prefs entries. */
-    fun clearTrendWidgetConfig(context: Context, appWidgetId: Int) {
-        context.getSharedPreferences(TREND_PREFS_NAME, Context.MODE_PRIVATE)
+    /** Called from PriceTimeSeriesWidgetProvider.onDeleted so removed instances don't leak prefs entries. */
+    fun clearTimeSeriesWidgetConfig(context: Context, appWidgetId: Int) {
+        context.getSharedPreferences(TIME_SERIES_PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_CHART_STYLE_PREFIX + appWidgetId)
             .remove(KEY_GRAPH_HOURS_PREFIX + appWidgetId)
@@ -105,7 +105,7 @@ object WidgetUpdateUtil {
     /**
      * Fetches the latest price and pushes it to every placed widget
      * instance of both widget types (the compact 1x1 widget and the
-     * large trend widget) — a single fetch's result is reused for both,
+     * large time series widget) — a single fetch's result is reused for both,
      * rather than each widget type triggering its own network call.
      * Performs blocking network I/O; call only from a background thread
      * (this is invoked from RefreshWorker). Runs unconditionally
@@ -121,7 +121,7 @@ object WidgetUpdateUtil {
      * ComedApiClient.PriceResult.Available for why.
      *
      * Two cases redisplay the last successfully fetched price (and its
-     * feed timestamp and trend chart) instead of overwriting the widgets
+     * feed timestamp and time series chart) instead of overwriting the widgets
      * with "unavailable":
      *  - No usable network connection is detected up front (skips the
      *    fetch attempt entirely).
@@ -139,13 +139,13 @@ object WidgetUpdateUtil {
     fun refreshAllWidgets(context: Context) {
         val appWidgetManager = AppWidgetManager.getInstance(context)
         val widgetIds = priceWidgetIds(context)
-        val trendIds = trendWidgetIds(context)
-        if (widgetIds.isEmpty() && trendIds.isEmpty()) return
+        val timeSeriesIds = timeSeriesWidgetIds(context)
+        if (widgetIds.isEmpty() && timeSeriesIds.isEmpty()) return
 
         if (!isNetworkAvailable(context)) {
             Log.d(TAG, "No network available; redisplaying last known price instead of fetching")
             renderLastGoodState(context, appWidgetManager, widgetIds)
-            renderLastGoodTrendWidgets(context, appWidgetManager, trendIds)
+            renderLastGoodTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds)
             return
         }
 
@@ -158,11 +158,11 @@ object WidgetUpdateUtil {
                 saveLastBand(context, band)
                 saveLastGoodState(context, priceText, band, result.feedTimestampMillis, result.points)
                 renderWidgets(context, appWidgetManager, widgetIds, priceText, updatedText, band)
-                renderTrendWidgets(context, appWidgetManager, trendIds, priceText, updatedText, band, result.points)
+                renderTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds, priceText, updatedText, band, result.points)
             }
             is ComedApiClient.PriceResult.FeedStale -> {
                 renderUnavailable(context, appWidgetManager, widgetIds)
-                renderUnavailableTrendWidgets(context, appWidgetManager, trendIds)
+                renderUnavailableTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds)
             }
             is ComedApiClient.PriceResult.FetchFailed -> {
                 val presumedNoConnectivity = result.likelyConnectivityIssue && isDeviceIdleModeActive(context)
@@ -173,10 +173,10 @@ object WidgetUpdateUtil {
                                 "redisplaying last known price"
                     )
                     renderLastGoodState(context, appWidgetManager, widgetIds)
-                    renderLastGoodTrendWidgets(context, appWidgetManager, trendIds)
+                    renderLastGoodTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds)
                 } else {
                     renderUnavailable(context, appWidgetManager, widgetIds)
-                    renderUnavailableTrendWidgets(context, appWidgetManager, trendIds)
+                    renderUnavailableTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds)
                 }
             }
         }
@@ -249,8 +249,8 @@ object WidgetUpdateUtil {
     fun showLoadingState(context: Context) {
         val appWidgetManager = AppWidgetManager.getInstance(context)
         val widgetIds = priceWidgetIds(context)
-        val trendIds = trendWidgetIds(context)
-        if (widgetIds.isEmpty() && trendIds.isEmpty()) return
+        val timeSeriesIds = timeSeriesWidgetIds(context)
+        if (widgetIds.isEmpty() && timeSeriesIds.isEmpty()) return
 
         val lastBand = loadLastBand(context)
 
@@ -263,16 +263,16 @@ object WidgetUpdateUtil {
             appWidgetManager.updateAppWidget(widgetId, views)
         }
 
-        if (trendIds.isNotEmpty()) {
-            val display = currentTrendDisplayState(context)
-            for (trendId in trendIds) {
-                val config = loadTrendWidgetConfig(context, trendId)
-                val filtered = filterHistory(display.rawPoints, config.graphHours)
-                val views = buildTrendWidgetViews(
-                    context, appWidgetManager, trendId, display.priceText, display.updatedText, display.band,
+        if (timeSeriesIds.isNotEmpty()) {
+            val display = currentTimeSeriesDisplayState(context)
+            for (timeSeriesId in timeSeriesIds) {
+                val config = loadTimeSeriesWidgetConfig(context, timeSeriesId)
+                val filtered = filterTimeSeries(display.rawPoints, config.graphHours)
+                val views = buildTimeSeriesWidgetViews(
+                    context, appWidgetManager, timeSeriesId, display.priceText, display.updatedText, display.band,
                     filtered, config.chartStyle, loading = true
                 )
-                appWidgetManager.updateAppWidget(trendId, views)
+                appWidgetManager.updateAppWidget(timeSeriesId, views)
             }
         }
     }
@@ -302,9 +302,9 @@ object WidgetUpdateUtil {
      * orange from 8 to 14 inclusive, red above 14. UNKNOWN is used when the
      * price is unavailable. colorRes is the same band color used
      * elsewhere (the compact widget's background, PriceChartRenderer's
-     * line/bar coloring) -- reused here as the trend widget's price text
+     * line/bar coloring) -- reused here as the time series widget's price text
      * color, since that widget's background stays neutral rather than
-     * changing with the band (see buildTrendWidgetViews).
+     * changing with the band (see buildTimeSeriesWidgetViews).
      */
     private enum class PriceBand(val backgroundRes: Int, val colorRes: Int) {
         GREEN(R.drawable.widget_background_green, R.color.price_low_color),
@@ -398,7 +398,7 @@ object WidgetUpdateUtil {
             result
         } catch (e: Exception) {
             // Corrupt or incompatible cached JSON (e.g. from a future
-            // format change) — treat as "no cached history" rather than
+            // format change) — treat as "no cached time series data" rather than
             // crashing the widget update.
             emptyList()
         }
@@ -455,11 +455,11 @@ object WidgetUpdateUtil {
         )
     }
 
-    // ---- Trend widget rendering ------------------------------------------
+    // ---- Time series widget rendering ------------------------------------------
 
     private const val COMED_LIVE_PRICES_URL = "https://hourlypricing.comed.com/live-prices/"
 
-    /** Tapping the trend widget's link line opens ComEd's live-prices page, separately from the tap-to-refresh area. */
+    /** Tapping the time series widget's link line opens ComEd's live-prices page, separately from the tap-to-refresh area. */
     private fun buildOpenLiveComedPricesIntent(context: Context): PendingIntent {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(COMED_LIVE_PRICES_URL))
         return PendingIntent.getActivity(
@@ -468,7 +468,7 @@ object WidgetUpdateUtil {
         )
     }
 
-    // Approximate chart-area size in dp, derived from price_trend_widget.xml's
+    // Approximate chart-area size in dp, derived from price_time_series_widget.xml's
     // fixed horizontal chrome (content padding + the Y-axis label column
     // + the chart image's own start margin -- all exact, direct copies of
     // those layout values) and an estimated vertical chrome height (see
@@ -483,10 +483,10 @@ object WidgetUpdateUtil {
     // gridlines/data (there's no longer any text inside the bitmap for a
     // stretch to visibly distort -- see PriceChartRenderer).
     //
-    // Horizontal chrome breakdown (must match price_trend_widget.xml):
-    //   14dp + 14dp   trend_content_container's paddingStart/paddingEnd
-    //   14dp          trend_y_axis_labels column width
-    //    2dp          trend_chart_image's layout_marginStart
+    // Horizontal chrome breakdown (must match price_time_series_widget.xml):
+    //   14dp + 14dp   time_series_content_container's paddingStart/paddingEnd
+    //   14dp          time_series_y_axis_labels column width
+    //    2dp          time_series_chart_image's layout_marginStart
     private const val CHART_HORIZONTAL_CHROME_DP = 14f + 14f + 14f + 2f
     private const val DEFAULT_CHART_WIDTH_DP = 250f
     private const val DEFAULT_CHART_HEIGHT_DP = 150f
@@ -495,7 +495,7 @@ object WidgetUpdateUtil {
      * Estimates the header row (title / refresh slot / price) plus link
      * row (link / last-updated) plus X-axis label row height, in dp, by
      * measuring real font metrics at the same text sizes
-     * price_trend_widget.xml actually uses, rather than a flat guessed
+     * price_time_series_widget.xml actually uses, rather than a flat guessed
      * constant. Keep the sizes and padding/margin values below in sync
      * with that layout if it ever changes -- there's no way to query them
      * back from the inflated RemoteViews layout itself.
@@ -511,7 +511,7 @@ object WidgetUpdateUtil {
             val fm = paint.fontMetrics
             // Matches TextView's own two line-height modes: with font
             // padding included (the default), TextView reserves
-            // fm.bottom - fm.top; with it turned off (trend_price_text
+            // fm.bottom - fm.top; with it turned off (time_series_price_text
             // and the axis labels all set includeFontPadding="false"),
             // just fm.descent - fm.ascent.
             val heightPx = if (includeFontPadding) fm.bottom - fm.top else fm.descent - fm.ascent
@@ -557,11 +557,11 @@ object WidgetUpdateUtil {
 
     /**
      * Returns only the points within `hours` of the most recent point,
-     * oldest first, for the trend chart — independent of ComedApiClient's
+     * oldest first, for the time series chart — independent of ComedApiClient's
      * own MAX_AGE_MINUTES, which governs the weighted-average calculation,
      * not the graph. Ported from the KDE widget's comed.js filterHistory.
      */
-    private fun filterHistory(points: List<ComedApiClient.PricePoint>, hours: Int): List<ComedApiClient.PricePoint> {
+    private fun filterTimeSeries(points: List<ComedApiClient.PricePoint>, hours: Int): List<ComedApiClient.PricePoint> {
         if (points.isEmpty()) return emptyList()
         val mostRecent = points.maxOf { it.millisUtc }
         val cutoff = mostRecent - hours * 60L * 60L * 1000L
@@ -569,14 +569,14 @@ object WidgetUpdateUtil {
     }
 
     /**
-     * Builds the RemoteViews for one trend widget instance. Content (price,
+     * Builds the RemoteViews for one time series widget instance. Content (price,
      * time, chart) always stays visible -- unlike the compact widget, a
      * refresh in progress is shown only via the small refresh
-     * icon/spinner slot in the header (trend_refresh_slot), matching the
+     * icon/spinner slot in the header (time_series_refresh_slot), matching the
      * KDE widget's ToolButton/BusyIndicator pair: `loading` toggles which
      * of the two is visible, everything else renders normally either way.
      */
-    private fun buildTrendWidgetViews(
+    private fun buildTimeSeriesWidgetViews(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
@@ -587,14 +587,14 @@ object WidgetUpdateUtil {
         chartStyle: PriceChartRenderer.ChartStyle,
         loading: Boolean
     ): RemoteViews {
-        val views = RemoteViews(context.packageName, R.layout.price_trend_widget)
-        views.setTextViewText(R.id.trend_price_text, priceText)
-        views.setTextColor(R.id.trend_price_text, ContextCompat.getColor(context, band.colorRes))
-        views.setTextViewText(R.id.trend_last_updated_text, updatedText)
+        val views = RemoteViews(context.packageName, R.layout.price_time_series_widget)
+        views.setTextViewText(R.id.time_series_price_text, priceText)
+        views.setTextColor(R.id.time_series_price_text, ContextCompat.getColor(context, band.colorRes))
+        views.setTextViewText(R.id.time_series_last_updated_text, updatedText)
 
-        views.setViewVisibility(R.id.trend_refresh_icon, if (loading) View.GONE else View.VISIBLE)
-        views.setViewVisibility(R.id.trend_refresh_spinner, if (loading) View.VISIBLE else View.GONE)
-        views.setOnClickPendingIntent(R.id.trend_refresh_icon, buildManualRefreshIntent(context))
+        views.setViewVisibility(R.id.time_series_refresh_icon, if (loading) View.GONE else View.VISIBLE)
+        views.setViewVisibility(R.id.time_series_refresh_spinner, if (loading) View.VISIBLE else View.GONE)
+        views.setOnClickPendingIntent(R.id.time_series_refresh_icon, buildManualRefreshIntent(context))
 
         // Unlike the compact widget, tapping this widget's background
         // does nothing -- only the refresh icon above and the link below
@@ -602,56 +602,56 @@ object WidgetUpdateUtil {
         // its ToolButton refreshes; tapping elsewhere in the popup
         // doesn't). This widget's background also doesn't change with
         // the price band -- see the fixed widget_background_neutral
-        // drawable set on trend_widget_root in price_trend_widget.xml.
+        // drawable set on time_series_widget_root in price_time_series_widget.xml.
         // The price is instead conveyed by the chart's line/bar coloring
         // (see PriceChartRenderer) and the price text itself, matching
         // how standard Android widgets (Gmail, Calendar, News, etc.) keep
         // a consistent neutral card and let the content inside carry any
         // color-coding.
-        views.setOnClickPendingIntent(R.id.trend_link_text, buildOpenLiveComedPricesIntent(context))
+        views.setOnClickPendingIntent(R.id.time_series_link_text, buildOpenLiveComedPricesIntent(context))
 
         val (widthPx, heightPx) = computeChartPixelSize(context, appWidgetManager, appWidgetId)
         val chart = PriceChartRenderer.render(
             context, widthPx, heightPx, points, chartStyle, chartTimeFormatter(context)
         )
-        views.setImageViewBitmap(R.id.trend_chart_image, chart.bitmap)
+        views.setImageViewBitmap(R.id.time_series_chart_image, chart.bitmap)
 
         val (topLabel, upperMidLabel, lowerMidLabel, bottomLabel) = chart.yAxisLabelsTopToBottom
-        views.setTextViewText(R.id.trend_y_label_top, topLabel)
-        views.setTextViewText(R.id.trend_y_label_upper_mid, upperMidLabel)
-        views.setTextViewText(R.id.trend_y_label_lower_mid, lowerMidLabel)
-        views.setTextViewText(R.id.trend_y_label_bottom, bottomLabel)
-        views.setTextViewText(R.id.trend_x_label_start, chart.xAxisLabelStart)
-        views.setTextViewText(R.id.trend_x_label_mid, chart.xAxisLabelMid)
-        views.setTextViewText(R.id.trend_x_label_end, chart.xAxisLabelEnd)
+        views.setTextViewText(R.id.time_series_y_label_top, topLabel)
+        views.setTextViewText(R.id.time_series_y_label_upper_mid, upperMidLabel)
+        views.setTextViewText(R.id.time_series_y_label_lower_mid, lowerMidLabel)
+        views.setTextViewText(R.id.time_series_y_label_bottom, bottomLabel)
+        views.setTextViewText(R.id.time_series_x_label_start, chart.xAxisLabelStart)
+        views.setTextViewText(R.id.time_series_x_label_mid, chart.xAxisLabelMid)
+        views.setTextViewText(R.id.time_series_x_label_end, chart.xAxisLabelEnd)
 
         return views
     }
 
-    /** Pushes the given price/time/band/history to every trend widget instance, each filtered to its own configured history window. */
-    private fun renderTrendWidgets(
+    /** Pushes the given price/time/band/time series data to every time series widget instance, each filtered to its own configured time series window. */
+    private fun renderTimeSeriesWidgets(
         context: Context,
         appWidgetManager: AppWidgetManager,
-        trendIds: IntArray,
+        timeSeriesIds: IntArray,
         priceText: String,
         updatedText: String,
         band: PriceBand,
         rawPoints: List<ComedApiClient.PricePoint>
     ) {
-        for (trendId in trendIds) {
-            val config = loadTrendWidgetConfig(context, trendId)
-            val filtered = filterHistory(rawPoints, config.graphHours)
-            val views = buildTrendWidgetViews(
-                context, appWidgetManager, trendId, priceText, updatedText, band, filtered, config.chartStyle,
+        for (timeSeriesId in timeSeriesIds) {
+            val config = loadTimeSeriesWidgetConfig(context, timeSeriesId)
+            val filtered = filterTimeSeries(rawPoints, config.graphHours)
+            val views = buildTimeSeriesWidgetViews(
+                context, appWidgetManager, timeSeriesId, priceText, updatedText, band, filtered, config.chartStyle,
                 loading = false
             )
-            appWidgetManager.updateAppWidget(trendId, views)
+            appWidgetManager.updateAppWidget(timeSeriesId, views)
         }
     }
 
-    private fun renderUnavailableTrendWidgets(context: Context, appWidgetManager: AppWidgetManager, trendIds: IntArray) {
-        renderTrendWidgets(
-            context, appWidgetManager, trendIds,
+    private fun renderUnavailableTimeSeriesWidgets(context: Context, appWidgetManager: AppWidgetManager, timeSeriesIds: IntArray) {
+        renderTimeSeriesWidgets(
+            context, appWidgetManager, timeSeriesIds,
             context.getString(R.string.price_unavailable),
             context.getString(R.string.time_placeholder),
             PriceBand.UNKNOWN,
@@ -659,14 +659,14 @@ object WidgetUpdateUtil {
         )
     }
 
-    private fun renderLastGoodTrendWidgets(context: Context, appWidgetManager: AppWidgetManager, trendIds: IntArray) {
+    private fun renderLastGoodTimeSeriesWidgets(context: Context, appWidgetManager: AppWidgetManager, timeSeriesIds: IntArray) {
         val state = loadLastGoodState(context)
         val updatedText = state.feedTimestampMillis?.let { formatLastUpdated(context, it) }
             ?: context.getString(R.string.time_placeholder)
-        renderTrendWidgets(context, appWidgetManager, trendIds, state.priceText, updatedText, state.band, state.rawPoints)
+        renderTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds, state.priceText, updatedText, state.band, state.rawPoints)
     }
 
-    private data class TrendDisplayState(
+    private data class TimeSeriesDisplayState(
         val priceText: String,
         val updatedText: String,
         val band: PriceBand,
@@ -674,18 +674,18 @@ object WidgetUpdateUtil {
     )
 
     /**
-     * What should currently be on screen for the trend widgets, derived
+     * What should currently be on screen for the time series widgets, derived
      * from the last completed refresh (not a new fetch) -- either the
      * explicit "unavailable" state, if that's how the last tick ended, or
-     * the last successfully fetched price/time/history otherwise. Shared
+     * the last successfully fetched price/time/time series data otherwise. Shared
      * by showLoadingState (flashing the refresh spinner without touching
-     * the rest of the content) and renderSingleTrendWidget (resize/config
+     * the rest of the content) and renderSingleTimeSeriesWidget (resize/config
      * re-renders).
      */
-    private fun currentTrendDisplayState(context: Context): TrendDisplayState {
+    private fun currentTimeSeriesDisplayState(context: Context): TimeSeriesDisplayState {
         val band = loadLastBand(context)
         return if (band == PriceBand.UNKNOWN) {
-            TrendDisplayState(
+            TimeSeriesDisplayState(
                 context.getString(R.string.price_unavailable),
                 context.getString(R.string.time_placeholder),
                 PriceBand.UNKNOWN,
@@ -695,26 +695,26 @@ object WidgetUpdateUtil {
             val state = loadLastGoodState(context)
             val updatedText = state.feedTimestampMillis?.let { formatLastUpdated(context, it) }
                 ?: context.getString(R.string.time_placeholder)
-            TrendDisplayState(state.priceText, updatedText, state.band, state.rawPoints)
+            TimeSeriesDisplayState(state.priceText, updatedText, state.band, state.rawPoints)
         }
     }
 
     /**
-     * Re-renders exactly one trend widget instance from whatever price
+     * Re-renders exactly one time series widget instance from whatever price
      * state is currently on screen (the last completed refresh's result —
      * not a new fetch), at that instance's current size and its own
-     * chart-style/history config. Used after a resize
-     * (PriceTrendWidgetProvider.onAppWidgetOptionsChanged) and right after
-     * saving new configuration (PriceTrendWidgetConfigureActivity), so
+     * chart-style/time-series-length config. Used after a resize
+     * (PriceTimeSeriesWidgetProvider.onAppWidgetOptionsChanged) and right after
+     * saving new configuration (PriceTimeSeriesWidgetConfigureActivity), so
      * both cases reflect immediately without waiting for the next
      * 5-minute tick.
      */
-    fun renderSingleTrendWidget(context: Context, appWidgetId: Int) {
+    fun renderSingleTimeSeriesWidget(context: Context, appWidgetId: Int) {
         val appWidgetManager = AppWidgetManager.getInstance(context)
-        val display = currentTrendDisplayState(context)
-        val config = loadTrendWidgetConfig(context, appWidgetId)
-        val filtered = filterHistory(display.rawPoints, config.graphHours)
-        val views = buildTrendWidgetViews(
+        val display = currentTimeSeriesDisplayState(context)
+        val config = loadTimeSeriesWidgetConfig(context, appWidgetId)
+        val filtered = filterTimeSeries(display.rawPoints, config.graphHours)
+        val views = buildTimeSeriesWidgetViews(
             context, appWidgetManager, appWidgetId, display.priceText, display.updatedText, display.band,
             filtered, config.chartStyle, loading = false
         )
@@ -773,16 +773,16 @@ object WidgetUpdateUtil {
         )
     }
 
-    /** Widget ids for the large trend widget (PriceTrendWidgetProvider). */
-    private fun trendWidgetIds(context: Context): IntArray {
+    /** Widget ids for the large time series widget (PriceTimeSeriesWidgetProvider). */
+    private fun timeSeriesWidgetIds(context: Context): IntArray {
         return AppWidgetManager.getInstance(context).getAppWidgetIds(
-            ComponentName(context, PriceTrendWidgetProvider::class.java)
+            ComponentName(context, PriceTimeSeriesWidgetProvider::class.java)
         )
     }
 
     /** True if at least one instance of either widget type is currently placed. Used by BootReceiver and WatchdogWorker. */
     fun hasAnyWidgetsPlaced(context: Context): Boolean {
-        return priceWidgetIds(context).isNotEmpty() || trendWidgetIds(context).isNotEmpty()
+        return priceWidgetIds(context).isNotEmpty() || timeSeriesWidgetIds(context).isNotEmpty()
     }
 
     /**
@@ -790,7 +790,7 @@ object WidgetUpdateUtil {
      * instance of that specific widget type is removed). Only actually
      * tears down the shared alarm/watchdog chain once neither widget type
      * has any instances left — removing the last compact widget while a
-     * trend widget is still placed (or vice versa) must not stop updates
+     * time series widget is still placed (or vice versa) must not stop updates
      * for the one that remains.
      */
     fun handleWidgetProviderInstancesRemoved(context: Context) {

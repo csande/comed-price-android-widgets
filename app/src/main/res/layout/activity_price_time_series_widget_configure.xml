@@ -8,7 +8,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/trend_configure_title"
+        android:text="@string/time_series_configure_title"
         android:textSize="18sp"
         android:textStyle="bold"
         android:layout_marginBottom="20dp" />
@@ -16,7 +16,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/trend_configure_chart_style_label"
+        android:text="@string/time_series_configure_chart_style_label"
         android:textSize="14sp"
         android:layout_marginBottom="4dp" />
 
@@ -31,21 +31,21 @@
             android:id="@+id/chart_style_line_radio"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/trend_configure_chart_style_line"
+            android:text="@string/time_series_configure_chart_style_line"
             android:layout_marginEnd="24dp" />
 
         <RadioButton
             android:id="@+id/chart_style_bar_radio"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/trend_configure_chart_style_bar" />
+            android:text="@string/time_series_configure_chart_style_bar" />
 
     </RadioGroup>
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/trend_configure_history_label"
+        android:text="@string/time_series_configure_length_label"
         android:textSize="14sp"
         android:layout_marginBottom="4dp" />
 
@@ -60,6 +60,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="end"
-        android:text="@string/trend_configure_save" />
+        android:text="@string/time_series_configure_save" />
 
 </LinearLayout>

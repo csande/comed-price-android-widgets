@@ -6,19 +6,19 @@ import android.content.Context
 import android.os.Bundle
 
 /**
- * AppWidgetProvider for the large, resizable trend widget. Does not run
+ * AppWidgetProvider for the large, resizable time series widget. Does not run
  * its own alarm/refresh chain -- initializeWidgetUpdates/cancelAlarm/
  * cancelWatchdog are the same single chain shared with PriceWidgetProvider
  * (see WidgetUpdateUtil), so placing/removing instances of either widget
  * type correctly starts or stops that one chain rather than each type
  * managing a redundant chain of its own.
  */
-class PriceTrendWidgetProvider : AppWidgetProvider() {
+class PriceTimeSeriesWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         // Reached both around initial placement (once EXTRA_APPWIDGET_ID's
         // configure Activity returns RESULT_OK -- see
-        // PriceTrendWidgetConfigureActivity) and, redundantly, alongside
+        // PriceTimeSeriesWidgetConfigureActivity) and, redundantly, alongside
         // onEnabled. Safe to call repeatedly: both the watchdog scheduling
         // and the immediate work enqueue it triggers are deduplicated.
         WidgetUpdateUtil.initializeWidgetUpdates(context)
@@ -40,13 +40,13 @@ class PriceTrendWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
-        // Each trend widget instance has its own saved chart-style/
-        // history-hours config (see PriceTrendWidgetConfigureActivity);
+        // Each time series widget instance has its own saved chart-style/
+        // time-series-length config (see PriceTimeSeriesWidgetConfigureActivity);
         // drop it so a removed widget's settings don't linger indefinitely
         // in SharedPreferences under an appWidgetId nothing references
         // anymore.
         for (appWidgetId in appWidgetIds) {
-            WidgetUpdateUtil.clearTrendWidgetConfig(context, appWidgetId)
+            WidgetUpdateUtil.clearTimeSeriesWidgetConfig(context, appWidgetId)
         }
     }
 
@@ -59,6 +59,6 @@ class PriceTrendWidgetProvider : AppWidgetProvider() {
         // Fired when this instance is resized. Re-renders the chart
         // bitmap at the new size using whatever price data is already
         // cached -- no network fetch needed just to redraw at a new size.
-        WidgetUpdateUtil.renderSingleTrendWidget(context, appWidgetId)
+        WidgetUpdateUtil.renderSingleTimeSeriesWidget(context, appWidgetId)
     }
 }
