@@ -3,9 +3,14 @@ package com.github.csande.comedpricewidgets
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.NumberPicker
 import android.widget.RadioGroup
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 /**
  * Shown once when a time series widget is placed (per the "configure" attribute
@@ -31,7 +36,18 @@ class PriceTimeSeriesWidgetConfigureActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setResult(RESULT_CANCELED)
+
+        // Android 15+ (API 35, this app's targetSdk) enforces edge-to-edge:
+        // the window no longer automatically reserves space for the status
+        // bar / toolbar, so without this the top of the layout (the title
+        // and "Chart style" label) renders underneath them and is hidden.
+        // Explicitly opting into edge-to-edge here (rather than relying on
+        // whether the OS happens to force it) means the inset handling
+        // below applies consistently on every API level down to minSdk.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         setContentView(R.layout.activity_price_time_series_widget_configure)
+        applyRootInsetPadding()
 
         appWidgetId = intent?.extras?.getInt(
             AppWidgetManager.EXTRA_APPWIDGET_ID,
@@ -64,6 +80,30 @@ class PriceTimeSeriesWidgetConfigureActivity : Activity() {
         graphHoursPicker.value = existingConfig.graphHours
 
         findViewById<Button>(R.id.save_button).setOnClickListener { onSaveClicked() }
+    }
+
+    /**
+     * Pads the root layout by the system bars' inset on each side, added
+     * on top of its existing 24dp padding (set in XML, still applied as
+     * the base here) rather than replacing it -- so content keeps clear
+     * of the status bar/toolbar at the top and the gesture/nav bar at the
+     * bottom, on top of the layout's own breathing room. Recomputed as an
+     * absolute value each time the listener fires (not accumulated), so
+     * it's safe if insets change (e.g. rotation) while this is visible.
+     */
+    private fun applyRootInsetPadding() {
+        val root = findViewById<View>(R.id.configure_root)
+        val basePaddingPx = root.paddingLeft // the 24dp from XML, same on all four sides
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
+            val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(
+                left = basePaddingPx + bars.left,
+                top = basePaddingPx + bars.top,
+                right = basePaddingPx + bars.right,
+                bottom = basePaddingPx + bars.bottom
+            )
+            windowInsets
+        }
     }
 
     private fun onSaveClicked() {
