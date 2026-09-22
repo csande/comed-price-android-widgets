@@ -1,4 +1,4 @@
-package com.github.csande.comedpricewidget
+package com.github.csande.comedpricewidgets
 
 import android.content.Context
 import androidx.work.Worker

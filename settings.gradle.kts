@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ComEdPriceWidget"
+rootProject.name = "ComEdPriceWidgets"
 include(":app")

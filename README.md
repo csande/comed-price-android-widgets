@@ -47,7 +47,7 @@ separate app-level screen-state gate layered on top of it.
 ## Opening the project
 
 1. Open Android Studio.
-2. **File > Open**, and select the `ComEdPriceWidget` folder (the one
+2. **File > Open**, and select the `ComEdPriceWidgets` folder (the one
    containing this README).
 3. Let Gradle sync. Android Studio will regenerate the Gradle wrapper jar
    automatically on first sync — you do not need internet access to any
@@ -96,7 +96,7 @@ device is idle.
 ## Project structure
 
 ```
-app/src/main/java/com/github/csande/comedpricewidget/
+app/src/main/java/com/github/csande/comedpricewidgets/
   ComedApiClient.kt                    Fetches the ComEd feed, computes the
                                         weighted average, and returns the
                                         raw points used by the trend chart

@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.github.csande.comedpricewidget"
+    namespace = "com.github.csande.comedpricewidgets"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.github.csande.comedpricewidget"
+        applicationId = "com.github.csande.comedpricewidgets"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

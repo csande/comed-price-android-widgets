@@ -1,4 +1,4 @@
-package com.github.csande.comedpricewidget
+package com.github.csande.comedpricewidgets
 
 import android.util.Log
 import org.json.JSONArray
@@ -278,7 +278,7 @@ object ComedApiClient {
                 readTimeout = READ_TIMEOUT_MS
                 // Some CDNs/WAFs reject requests with no User-Agent or the
                 // default "Java/x.x.x" one HttpURLConnection sends.
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Android) ComEdPriceWidget/1.0")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Android) ComEdPriceWidgets/1.0")
                 setRequestProperty("Accept", "application/json")
             }
             try {
