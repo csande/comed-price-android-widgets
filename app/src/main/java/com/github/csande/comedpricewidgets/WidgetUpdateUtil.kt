@@ -485,9 +485,9 @@ object WidgetUpdateUtil {
     //
     // Horizontal chrome breakdown (must match price_time_series_widget.xml):
     //   14dp + 14dp   time_series_content_container's paddingStart/paddingEnd
-    //   14dp          time_series_y_axis_labels column width
+    //   20dp          time_series_y_axis_labels column width
     //    2dp          time_series_chart_image's layout_marginStart
-    private const val CHART_HORIZONTAL_CHROME_DP = 14f + 14f + 14f + 2f
+    private const val CHART_HORIZONTAL_CHROME_DP = 14f + 14f + 20f + 2f
     private const val DEFAULT_CHART_WIDTH_DP = 250f
     private const val DEFAULT_CHART_HEIGHT_DP = 150f
 

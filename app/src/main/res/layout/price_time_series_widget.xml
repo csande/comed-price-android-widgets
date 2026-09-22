@@ -121,30 +121,28 @@
             <!-- Chart row: a fixed-width Y-axis label column (real
                  TextViews, immune to any bitmap-scaling error) beside the
                  chart image itself, which now contains only gridlines and
-                 the plotted data, no text. This column's width (14dp) and
+                 the plotted data, no text. This column's width (20dp) and
                  the chart image's marginStart (2dp) are both baked into
                  CHART_HORIZONTAL_CHROME_DP in WidgetUpdateUtil, which
                  subtracts them (along with this container's own
                  start/end padding) when estimating how much width is
-                 actually left for the chart bitmap. 14dp comfortably
-                 fits the common case (short integer-cent labels like
-                 "6¢"); an occasional decimal-cent label (e.g. "1.5¢",
-                 only shown when the axis spacing itself is sub-cent) may
-                 clip slightly, an acceptable, purely cosmetic tradeoff
-                 for a visibly tighter margin the rest of the time.
+                 actually left for the chart bitmap.
 
-                 Labels are left-aligned (gravity="start"), not hugging
-                 the chart on the right, so their start position is
-                 always the same fixed x regardless of how wide the
-                 number is (a 1-digit "6¢" vs. a 2-digit "40¢"): flush
-                 against this column's own left edge, which is exactly
-                 time_series_content_container's paddingStart, the same start
-                 point time_series_title_text/time_series_link_text above already
-                 sit at with no extra margin of their own needed. Right-
-                 aligning the labels instead would make their start
-                 position shift with every label's width, which a fixed
-                 margin on the title/link text could never reliably
-                 match. -->
+                 Labels are right-aligned (gravity="end"), flush against
+                 the chart's edge, so the cent symbol - and the decimal
+                 point on sub-cent labels - sits at the same fixed x for
+                 every label, with any extra digits (a 2-digit "40¢" vs.
+                 a 1-digit "6¢") or a leading minus sign (ComEd prices go
+                 negative occasionally) growing leftward into the
+                 column's own space instead of shifting the symbol
+                 itself. Left-aligning instead would fix each label's
+                 *first* character in place rather than its last, which
+                 is what actually needs to line up for the column to read
+                 as a column of numbers at a glance. 20dp comfortably
+                 fits the widest realistic label ("-14¢" or a sub-cent
+                 "-1.5¢"); anything longer would only come from a
+                 pathological price and can clip without breaking the
+                 common case. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
@@ -153,16 +151,16 @@
 
                 <LinearLayout
                     android:id="@+id/time_series_y_axis_labels"
-                    android:layout_width="14dp"
+                    android:layout_width="20dp"
                     android:layout_height="match_parent"
                     android:orientation="vertical"
-                    android:gravity="start">
+                    android:gravity="end">
 
                     <TextView
                         android:id="@+id/time_series_y_label_top"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="start"
+                        android:gravity="end"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
@@ -177,7 +175,7 @@
                         android:id="@+id/time_series_y_label_upper_mid"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="start"
+                        android:gravity="end"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
@@ -192,7 +190,7 @@
                         android:id="@+id/time_series_y_label_lower_mid"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="start"
+                        android:gravity="end"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
@@ -207,7 +205,7 @@
                         android:id="@+id/time_series_y_label_bottom"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="start"
+                        android:gravity="end"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
@@ -237,7 +235,7 @@
                 android:orientation="horizontal">
 
                 <TextView
-                    android:layout_width="14dp"
+                    android:layout_width="20dp"
                     android:layout_height="wrap_content" />
 
                 <TextView
