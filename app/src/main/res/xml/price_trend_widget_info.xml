@@ -11,4 +11,4 @@
     android:configure="com.github.csande.comedpricewidget.PriceTrendWidgetConfigureActivity"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:previewImage="@mipmap/ic_launcher" />
+    android:previewImage="@drawable/price_trend_widget_preview" />

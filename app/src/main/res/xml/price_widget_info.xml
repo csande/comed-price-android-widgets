@@ -8,4 +8,4 @@
     android:initialLayout="@layout/price_widget"
     android:resizeMode="none"
     android:widgetCategory="home_screen"
-    android:previewImage="@mipmap/ic_launcher" />
+    android:previewImage="@drawable/price_widget_preview" />
