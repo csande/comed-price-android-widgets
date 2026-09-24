@@ -138,11 +138,23 @@
                  itself. Left-aligning instead would fix each label's
                  *first* character in place rather than its last, which
                  is what actually needs to line up for the column to read
-                 as a column of numbers at a glance. 20dp comfortably
-                 fits the widest realistic label ("-14¢" or a sub-cent
-                 "-1.5¢"); anything longer would only come from a
-                 pathological price and can clip without breaking the
-                 common case. -->
+                 as a column of numbers at a glance.
+
+                 20dp at the default 9sp fits every realistic label with
+                 room to spare, but 9sp is a *requested* size, not a
+                 guaranteed one - it scales with the device's system font
+                 size setting, so a phone with a larger-than-default font
+                 scale can need meaningfully more width than the emulator
+                 (at its default 1.0 scale) ever shows. A single-line,
+                 end-gravity TextView that ends up wider than its box does
+                 not reliably slide its content left to stay anchored; it
+                 can instead clip whichever end sticks out, which for
+                 gravity="end" is the *last* character - the cent sign -
+                 rather than the leading digit one might expect. The
+                 autoSizeText* attributes below let each label shrink
+                 (down to 6sp) rather than clip once its content stops
+                 fitting the 20dp box, the same technique price_widget.xml
+                 already uses for price_text. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
@@ -164,7 +176,10 @@
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="9sp" />
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="6sp"
+                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeStepGranularity="1sp" />
 
                     <TextView
                         android:layout_width="1dp"
@@ -179,7 +194,10 @@
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="9sp" />
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="6sp"
+                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeStepGranularity="1sp" />
 
                     <TextView
                         android:layout_width="1dp"
@@ -194,7 +212,10 @@
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="9sp" />
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="6sp"
+                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeStepGranularity="1sp" />
 
                     <TextView
                         android:layout_width="1dp"
@@ -209,7 +230,10 @@
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="9sp" />
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="6sp"
+                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeStepGranularity="1sp" />
 
                 </LinearLayout>
 
@@ -248,7 +272,10 @@
                     android:includeFontPadding="false"
                     android:maxLines="1"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="9sp" />
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="6sp"
+                    android:autoSizeMaxTextSize="9sp"
+                    android:autoSizeStepGranularity="1sp" />
 
                 <TextView
                     android:id="@+id/time_series_x_label_mid"
@@ -259,7 +286,10 @@
                     android:includeFontPadding="false"
                     android:maxLines="1"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="9sp" />
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="6sp"
+                    android:autoSizeMaxTextSize="9sp"
+                    android:autoSizeStepGranularity="1sp" />
 
                 <TextView
                     android:id="@+id/time_series_x_label_end"
@@ -270,7 +300,10 @@
                     android:includeFontPadding="false"
                     android:maxLines="1"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="9sp" />
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="6sp"
+                    android:autoSizeMaxTextSize="9sp"
+                    android:autoSizeStepGranularity="1sp" />
 
             </LinearLayout>
 
