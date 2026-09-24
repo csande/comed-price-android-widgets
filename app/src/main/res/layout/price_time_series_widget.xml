@@ -178,7 +178,7 @@
                         android:textColor="?android:attr/textColorSecondary"
                         android:autoSizeTextType="uniform"
                         android:autoSizeMinTextSize="6sp"
-                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeMaxTextSize="10sp"
                         android:autoSizeStepGranularity="1sp" />
 
                     <TextView
@@ -196,7 +196,7 @@
                         android:textColor="?android:attr/textColorSecondary"
                         android:autoSizeTextType="uniform"
                         android:autoSizeMinTextSize="6sp"
-                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeMaxTextSize="10sp"
                         android:autoSizeStepGranularity="1sp" />
 
                     <TextView
@@ -214,7 +214,7 @@
                         android:textColor="?android:attr/textColorSecondary"
                         android:autoSizeTextType="uniform"
                         android:autoSizeMinTextSize="6sp"
-                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeMaxTextSize="10sp"
                         android:autoSizeStepGranularity="1sp" />
 
                     <TextView
@@ -232,7 +232,7 @@
                         android:textColor="?android:attr/textColorSecondary"
                         android:autoSizeTextType="uniform"
                         android:autoSizeMinTextSize="6sp"
-                        android:autoSizeMaxTextSize="9sp"
+                        android:autoSizeMaxTextSize="10sp"
                         android:autoSizeStepGranularity="1sp" />
 
                 </LinearLayout>
@@ -274,7 +274,7 @@
                     android:textColor="?android:attr/textColorSecondary"
                     android:autoSizeTextType="uniform"
                     android:autoSizeMinTextSize="6sp"
-                    android:autoSizeMaxTextSize="9sp"
+                    android:autoSizeMaxTextSize="10sp"
                     android:autoSizeStepGranularity="1sp" />
 
                 <TextView
@@ -288,7 +288,7 @@
                     android:textColor="?android:attr/textColorSecondary"
                     android:autoSizeTextType="uniform"
                     android:autoSizeMinTextSize="6sp"
-                    android:autoSizeMaxTextSize="9sp"
+                    android:autoSizeMaxTextSize="10sp"
                     android:autoSizeStepGranularity="1sp" />
 
                 <TextView
@@ -302,7 +302,7 @@
                     android:textColor="?android:attr/textColorSecondary"
                     android:autoSizeTextType="uniform"
                     android:autoSizeMinTextSize="6sp"
-                    android:autoSizeMaxTextSize="9sp"
+                    android:autoSizeMaxTextSize="10sp"
                     android:autoSizeStepGranularity="1sp" />
 
             </LinearLayout>

@@ -528,7 +528,7 @@ object WidgetUpdateUtil {
         val linkRowMarginBottomDp = 4f
         val linkRowHeightDp = maxOf(linkLineHeightDp, timeLineHeightDp) + linkRowMarginBottomDp
 
-        val xAxisLabelLineHeightDp = lineHeightDp(9f, includeFontPadding = false)
+        val xAxisLabelLineHeightDp = lineHeightDp(10f, includeFontPadding = false)
         val xAxisRowMarginTopDp = 0f
         val xAxisRowHeightDp = xAxisLabelLineHeightDp + xAxisRowMarginTopDp
 
