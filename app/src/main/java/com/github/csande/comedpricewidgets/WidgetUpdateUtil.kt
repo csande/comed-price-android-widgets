@@ -158,7 +158,12 @@ object WidgetUpdateUtil {
                 saveLastBand(context, band)
                 saveLastGoodState(context, priceText, band, result.feedTimestampMillis, result.points)
                 renderWidgets(context, appWidgetManager, widgetIds, priceText, updatedText, band)
-                renderTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds, priceText, updatedText, band, result.points)
+
+                val (timeSeriesPriceText, timeSeriesBand) = latestPointDisplay(context, result.points, priceText, band)
+                renderTimeSeriesWidgets(
+                    context, appWidgetManager, timeSeriesIds, timeSeriesPriceText, updatedText, timeSeriesBand,
+                    result.points
+                )
             }
             is ComedApiClient.PriceResult.FeedStale -> {
                 renderUnavailable(context, appWidgetManager, widgetIds)
@@ -279,6 +284,31 @@ object WidgetUpdateUtil {
 
     private fun formatPrice(context: Context, average: Double): String {
         return String.format(Locale.US, "\u26A1 %.1f\u00A2", average)
+    }
+
+    /**
+     * The time series widget's own price text and color band, derived
+     * from the single most recent raw feed point rather than the
+     * weighted average the compact widget shows (see ComedApiClient's
+     * own comment on why that averaging matters there -- a single
+     * number with no context, checked at a glance). The time series
+     * widget already gives the latest reading context via the chart
+     * itself, so showing the latest raw reading here instead keeps the
+     * number -- and its color -- in the corner consistent with where the
+     * chart's own line/bar actually ends, rather than a smoothed number
+     * that can visibly disagree with it when the price just moved.
+     * Falls back to the given (compact-widget) priceText/band when
+     * there's no raw point to read from, e.g. the explicit "unavailable"
+     * state, where rawPoints is empty.
+     */
+    private fun latestPointDisplay(
+        context: Context,
+        rawPoints: List<ComedApiClient.PricePoint>,
+        fallbackPriceText: String,
+        fallbackBand: PriceBand
+    ): Pair<String, PriceBand> {
+        val mostRecent = rawPoints.maxByOrNull { it.millisUtc } ?: return fallbackPriceText to fallbackBand
+        return formatPrice(context, mostRecent.price) to bandFor(mostRecent.price)
     }
 
     /**
@@ -725,7 +755,8 @@ object WidgetUpdateUtil {
         val state = loadLastGoodState(context)
         val updatedText = state.feedTimestampMillis?.let { formatLastUpdated(context, it) }
             ?: context.getString(R.string.time_placeholder)
-        renderTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds, state.priceText, updatedText, state.band, state.rawPoints)
+        val (priceText, band) = latestPointDisplay(context, state.rawPoints, state.priceText, state.band)
+        renderTimeSeriesWidgets(context, appWidgetManager, timeSeriesIds, priceText, updatedText, band, state.rawPoints)
     }
 
     private data class TimeSeriesDisplayState(
@@ -757,7 +788,8 @@ object WidgetUpdateUtil {
             val state = loadLastGoodState(context)
             val updatedText = state.feedTimestampMillis?.let { formatLastUpdated(context, it) }
                 ?: context.getString(R.string.time_placeholder)
-            TimeSeriesDisplayState(state.priceText, updatedText, state.band, state.rawPoints)
+            val (priceText, band) = latestPointDisplay(context, state.rawPoints, state.priceText, state.band)
+            TimeSeriesDisplayState(priceText, updatedText, band, state.rawPoints)
         }
     }
 
