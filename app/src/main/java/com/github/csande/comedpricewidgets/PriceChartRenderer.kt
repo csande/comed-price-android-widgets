@@ -43,9 +43,15 @@ import kotlin.math.pow
  *    point(s) where the interpolated price crosses a band threshold (8c
  *    or 14c), so a green stretch of line can never be drawn higher than
  *    an orange one -- color and height stay mathematically tied together
- *    everywhere along the line, not just at the plotted points.
- *  - BAR: each point is its own bar, colored by its own price, drawn
- *    from a zero baseline (ComEd prices occasionally go negative).
+ *    everywhere along the line, not just at the plotted points. A
+ *    segment spanning a Missing slot (see TimeSeriesSlot below) is
+ *    skipped entirely rather than connected through, leaving a visible
+ *    break where the feed actually has no data.
+ *  - BAR: each Present slot is its own bar, colored by its own price,
+ *    drawn from a zero baseline (ComEd prices occasionally go
+ *    negative); a Missing slot still reserves its place in the bar
+ *    sequence (so the gap doesn't just compress away) but draws a small
+ *    "no data" marker instead of a bar -- see drawMissingMarker.
  *
  * The color bands (GREEN under 8c, ORANGE 8-14c inclusive, RED above)
  * and their colors must stay in sync with WidgetUpdateUtil's PriceBand
@@ -59,6 +65,24 @@ object PriceChartRenderer {
     fun chartStyleFromIndex(index: Int): ChartStyle = if (index == 1) ChartStyle.BAR else ChartStyle.LINE
     fun indexFromChartStyle(style: ChartStyle): Int = if (style == ChartStyle.BAR) 1 else 0
 
+    /**
+     * One position along the time series chart's X axis: either a real
+     * feed reading (Present) or an expected-but-absent one (Missing),
+     * built by WidgetUpdateUtil.buildTimeSeriesSlots from the raw feed
+     * points before this renders anything. Keeping both cases in a
+     * single ordered list (rather than, say, just a list of the present
+     * points plus a separate list of gap ranges) is what lets the BAR
+     * style give each slot -- present or missing -- its own reserved
+     * position via xForBar(index), and what lets the LINE style decide,
+     * segment by segment, whether to draw a connecting line or leave a
+     * break.
+     */
+    sealed class TimeSeriesSlot {
+        abstract val millisUtc: Long
+        data class Present(override val millisUtc: Long, val price: Double) : TimeSeriesSlot()
+        data class Missing(override val millisUtc: Long) : TimeSeriesSlot()
+    }
+
     // Must match WidgetUpdateUtil's private PriceBand.bandFor thresholds.
     private const val BAND_THRESHOLD_LOW = 8.0
     private const val BAND_THRESHOLD_HIGH = 14.0
@@ -66,19 +90,24 @@ object PriceChartRenderer {
     // Small breathing-room margins only, now that no text is drawn into
     // the bitmap -- just enough that a data point or gridline right at an
     // extreme isn't clipped by the bitmap edge or the stroke's own width.
-    // MARGIN_TOP_PX/MARGIN_BOTTOM_PX exist specifically for the Y-axis
-    // gridline dots below: the top and bottom gridlines sit exactly at
-    // plotTop/plotBottom, so with zero margin a dot centered there would
-    // have half its circle drawn past the bitmap's own edge and clipped
-    // off -- not just cosmetically cut short, but visibly the wrong shape,
-    // since a circle missing its top or bottom arc no longer reads as
-    // round. GRID_DOT_DIAMETER_DP / 2 is the minimum needed; the extra
-    // margin here is a small buffer for anti-aliasing feathering at the
-    // dot's edge.
+    // MARGIN_TOP_PX exists specifically for the Y-axis gridline dots
+    // below: the top gridline sits exactly at plotTop, so with zero
+    // margin a dot centered there would have half its circle drawn past
+    // the bitmap's own edge and clipped off -- not just cosmetically cut
+    // short, but visibly the wrong shape, since a circle missing its top
+    // arc no longer reads as round. GRID_DOT_DIAMETER_DP / 2 is the
+    // minimum needed there; the extra margin is a small buffer for
+    // anti-aliasing feathering at the dot's edge.
+    //
+    // MARGIN_BOTTOM_PX has the same job for the bottom gridline dot, but
+    // is sized by a taller requirement: drawMissingMarker below centers
+    // its glyph vertically *on* plotBottom (so it visibly crosses that
+    // line -- see its own doc comment), which means roughly half the
+    // glyph's line height extends below plotBottom into this margin.
     private const val MARGIN_LEFT_PX = 6f
     private const val MARGIN_RIGHT_PX = 3f
     private const val MARGIN_TOP_PX = 2f
-    private const val MARGIN_BOTTOM_PX = 2f
+    private const val MARGIN_BOTTOM_PX = 5f
     private const val TICK_MARK_LENGTH_PX = 4f
 
     /**
@@ -100,6 +129,17 @@ object PriceChartRenderer {
 
     /** Center-to-center spacing between dots on the full-width Y-axis gridlines below. */
     private const val Y_GRID_DOT_INTERVAL_DP = 6f
+
+    /**
+     * The character(s) drawn in place of a bar for a Missing slot: two
+     * backslashes rather than a single italicized "N" or a lone
+     * backslash -- doesn't require checking that a device's font renders
+     * italics distinctly, doesn't ask the reader to parse it as a letter/
+     * abbreviation ("N" for "no data") versus a symbol, and reads more
+     * clearly as a deliberate "gap" mark than a single stroke does.
+     */
+    private const val MISSING_MARKER_GLYPH = "\\\\"
+    private const val MISSING_MARKER_TEXT_SIZE_DP = 7f
 
     /** Number of Y-axis gridlines/labels -- fixed, matching the 4 fixed label slots in price_time_series_widget.xml. */
     private const val Y_AXIS_LABEL_COUNT = 4
@@ -129,24 +169,27 @@ object PriceChartRenderer {
     )
 
     /**
-     * Renders the chart at the given pixel size. points must be sorted
-     * oldest-first and already filtered to the widget's configured
-     * time series window (see WidgetUpdateUtil.filterTimeSeries) -- this
-     * function draws exactly what it's given, with no filtering of its
-     * own. Returns EMPTY_RESULT (null bitmap, blank labels) if there is
-     * nothing to draw (empty points, or a non-positive size), so the
-     * caller can safely push it straight into the widget's views either
-     * way.
+     * Renders the chart at the given pixel size. slots must be sorted
+     * oldest-first and already built for the widget's configured time
+     * series window (see WidgetUpdateUtil.buildTimeSeriesSlots) -- this
+     * function draws exactly what it's given, with no filtering or gap-
+     * detection of its own; it only decides how to draw a Missing slot
+     * once it's told one is there. Returns EMPTY_RESULT (null bitmap,
+     * blank labels) if there is nothing to draw (empty slots, or a
+     * non-positive size), so the caller can safely push it straight into
+     * the widget's views either way.
      */
     fun render(
         context: Context,
         widthPx: Int,
         heightPx: Int,
-        points: List<ComedApiClient.PricePoint>,
+        slots: List<TimeSeriesSlot>,
         chartStyle: ChartStyle,
         timeFormatter: (Long) -> String
     ): ChartRenderResult {
-        if (points.isEmpty() || widthPx <= 0 || heightPx <= 0) return EMPTY_RESULT
+        if (slots.isEmpty() || widthPx <= 0 || heightPx <= 0) return EMPTY_RESULT
+        val presentSlots = slots.filterIsInstance<TimeSeriesSlot.Present>()
+        if (presentSlots.isEmpty()) return EMPTY_RESULT
 
         val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -191,13 +234,13 @@ object PriceChartRenderer {
         // Android trick for a dotted (rather than dashed) line, since
         // DashPathEffect itself only draws squared-off dashes; the round
         // cap turns each near-zero dash into a small filled circle
-        // instead. Alpha is well below the short tick marks/zero line
-        // (gridColor's own 160) -- as faint as they can be while still
-        // being visible -- so they read as background texture the data
-        // line sits on top of, rather than competing with it.
+        // instead. Alpha is still well below the short tick marks/zero
+        // line (gridColor's own 160), so these read as background
+        // texture the data line sits on top of rather than competing
+        // with it, but a shade darker than the original 45.
         val dottedGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = gridColor
-            alpha = 45
+            alpha = 65
             strokeWidth = GRID_DOT_DIAMETER_DP * density
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
@@ -214,8 +257,8 @@ object PriceChartRenderer {
         // ---- Y axis (price, in cents): rounded to "nice" min/max bounds.
         // Bars get a forced zero baseline to grow from; the line chart
         // stays tight to the actual data range. ----
-        var rawMinPrice = points.minOf { it.price }
-        var rawMaxPrice = points.maxOf { it.price }
+        var rawMinPrice = presentSlots.minOf { it.price }
+        var rawMaxPrice = presentSlots.maxOf { it.price }
         if (isBar) {
             rawMinPrice = min(0.0, rawMinPrice)
             rawMaxPrice = max(0.0, rawMaxPrice)
@@ -237,14 +280,17 @@ object PriceChartRenderer {
                     ((price - yAxis.min) / (yAxis.max - yAxis.min) * plotHeight)).toFloat()
         }
 
-        // ---- X axis positioning: bars sit in evenly-sized index slots
-        // (so they stay evenly spaced even if a reading is missing from
-        // the feed); the line uses time-proportional position (so a gap
-        // in readings shows as a longer segment rather than distorting
-        // spacing). ----
-        val n = points.size
-        val minTime = points.first().millisUtc
-        val maxTime = points.last().millisUtc
+        // ---- X axis positioning: bars sit in evenly-sized index slots,
+        // one per entry in `slots` including Missing ones (so a missing
+        // reading reserves its own place and the surrounding bars don't
+        // compress to fill the gap -- see drawMissingMarker for what
+        // draws there instead); the line uses time-proportional position
+        // (so a gap in readings shows as a longer segment rather than
+        // distorting spacing) and simply isn't drawn across a Missing
+        // slot -- see the LINE branch below. ----
+        val n = slots.size
+        val minTime = slots.first().millisUtc
+        val maxTime = slots.last().millisUtc
         val timeSpan = max(1L, maxTime - minTime)
         val slotWidth = plotWidth / n
         val barWidth = max(1f, slotWidth * 0.6f)
@@ -293,9 +339,9 @@ object PriceChartRenderer {
         val xAxisLabelMid: String
         val xAxisLabelEnd: String
         if (isBar) {
-            xAxisLabelStart = timeFormatter(points[0].millisUtc)
-            xAxisLabelMid = timeFormatter(points[(n - 1) / 2].millisUtc)
-            xAxisLabelEnd = timeFormatter(points[n - 1].millisUtc)
+            xAxisLabelStart = timeFormatter(slots[0].millisUtc)
+            xAxisLabelMid = timeFormatter(slots[(n - 1) / 2].millisUtc)
+            xAxisLabelEnd = timeFormatter(slots[n - 1].millisUtc)
         } else {
             xAxisLabelStart = timeFormatter(minTime)
             xAxisLabelMid = timeFormatter(minTime + timeSpan / 2)
@@ -328,33 +374,53 @@ object PriceChartRenderer {
         if (isBar) {
             val baselineY = yFor(0.0)
             for (k in 0 until n) {
-                val price = points[k].price
-                val topY = yFor(price)
-                val barTop = min(baselineY, topY)
-                val barHeight = max(1f, abs(baselineY - topY))
-                val barLeft = xForBar(k) - barWidth / 2f
-                dataPaint.style = Paint.Style.FILL
-                dataPaint.color = colorForPrice(price)
-                canvas.drawRect(barLeft, barTop, barLeft + barWidth, barTop + barHeight, dataPaint)
+                when (val slot = slots[k]) {
+                    is TimeSeriesSlot.Present -> {
+                        val topY = yFor(slot.price)
+                        val barTop = min(baselineY, topY)
+                        val barHeight = max(1f, abs(baselineY - topY))
+                        val barLeft = xForBar(k) - barWidth / 2f
+                        dataPaint.style = Paint.Style.FILL
+                        dataPaint.color = colorForPrice(slot.price)
+                        canvas.drawRect(barLeft, barTop, barLeft + barWidth, barTop + barHeight, dataPaint)
+                    }
+                    is TimeSeriesSlot.Missing -> {
+                        drawMissingMarker(canvas, xForBar(k), plotBottom, density, gridColor)
+                    }
+                }
             }
             dataPaint.style = Paint.Style.STROKE
         } else {
             if (n == 1) {
-                // Nothing to connect -- draw a single dot so a lone point
-                // is still visible.
-                val soloX = xForTime(points[0].millisUtc)
-                val soloY = yFor(points[0].price)
-                val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    style = Paint.Style.FILL
-                    color = colorForPrice(points[0].price)
+                // Nothing to connect -- draw a single dot so a lone slot
+                // is still visible, but only if it actually has data;
+                // a lone Missing slot (a one-slot window with nothing in
+                // it) has nothing to draw.
+                val soloSlot = slots[0]
+                if (soloSlot is TimeSeriesSlot.Present) {
+                    val soloX = xForTime(soloSlot.millisUtc)
+                    val soloY = yFor(soloSlot.price)
+                    val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = colorForPrice(soloSlot.price)
+                    }
+                    canvas.drawCircle(soloX, soloY, 2.2f * density, dotPaint)
                 }
-                canvas.drawCircle(soloX, soloY, 2.2f * density, dotPaint)
             } else {
                 for (seg in 0 until n - 1) {
-                    drawSegment(
-                        canvas, dataPaint, points[seg], points[seg + 1],
-                        ::xForTime, ::yFor, ::colorForPrice
-                    )
+                    val slotA = slots[seg]
+                    val slotB = slots[seg + 1]
+                    // Only connect two slots that both actually have
+                    // data -- if either side of this segment is Missing,
+                    // skip drawing it entirely rather than connecting
+                    // straight through the gap, leaving a visible break
+                    // in the line where the feed actually has no data.
+                    if (slotA is TimeSeriesSlot.Present && slotB is TimeSeriesSlot.Present) {
+                        drawSegment(
+                            canvas, dataPaint, slotA, slotB,
+                            ::xForTime, ::yFor, ::colorForPrice
+                        )
+                    }
                 }
             }
         }
@@ -367,12 +433,15 @@ object PriceChartRenderer {
      * any point where the interpolated price crosses a band threshold,
      * each sub-segment stroked in the color for its own (constant, by
      * construction) band. Mirrors PriceGraph.qml's drawSegment exactly.
+     * Only ever called with two Present slots -- render()'s LINE branch
+     * skips the segment entirely rather than calling this when either
+     * side is Missing.
      */
     private fun drawSegment(
         canvas: Canvas,
         paint: Paint,
-        pointA: ComedApiClient.PricePoint,
-        pointB: ComedApiClient.PricePoint,
+        pointA: TimeSeriesSlot.Present,
+        pointB: TimeSeriesSlot.Present,
         xFor: (Long) -> Float,
         yFor: (Double) -> Float,
         colorForPrice: (Double) -> Int
@@ -413,6 +482,29 @@ object PriceChartRenderer {
                 paint
             )
         }
+    }
+
+    /**
+     * Draws the "no data" marker for a Missing bar slot: two backslashes
+     * (see MISSING_MARKER_GLYPH), centered horizontally on the slot and
+     * centered *vertically on plotBottom* -- which is always exactly
+     * where the bottom-most Y-axis tick sits (yFor(yAxis.min) ==
+     * plotBottom by construction, regardless of what that value actually
+     * is -- see yFor below), and in the common case where the bar
+     * chart's Y axis bottoms out at zero, exactly where the solid zero
+     * line is drawn too. Centering on that line rather than sitting
+     * above it means the marker visibly crosses it instead of floating
+     * as a separate mark near the bottom.
+     */
+    private fun drawMissingMarker(canvas: Canvas, centerX: Float, plotBottom: Float, density: Float, color: Int) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            textSize = MISSING_MARKER_TEXT_SIZE_DP * density
+            textAlign = Paint.Align.CENTER
+        }
+        val fontMetrics = paint.fontMetrics
+        val baselineY = plotBottom - (fontMetrics.ascent + fontMetrics.descent) / 2f
+        canvas.drawText(MISSING_MARKER_GLYPH, centerX, baselineY, paint)
     }
 
     private data class NiceAxis(val min: Double, val max: Double, val decimals: Int)

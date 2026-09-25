@@ -267,10 +267,10 @@ object WidgetUpdateUtil {
             val display = currentTimeSeriesDisplayState(context)
             for (timeSeriesId in timeSeriesIds) {
                 val config = loadTimeSeriesWidgetConfig(context, timeSeriesId)
-                val filtered = filterTimeSeries(display.rawPoints, config.graphHours)
+                val slots = buildTimeSeriesSlots(display.rawPoints, config.graphHours)
                 val views = buildTimeSeriesWidgetViews(
                     context, appWidgetManager, timeSeriesId, display.priceText, display.updatedText, display.band,
-                    filtered, config.chartStyle, loading = true
+                    slots, config.chartStyle, loading = true
                 )
                 appWidgetManager.updateAppWidget(timeSeriesId, views)
             }
@@ -556,16 +556,78 @@ object WidgetUpdateUtil {
     }
 
     /**
-     * Returns only the points within `hours` of the most recent point,
-     * oldest first, for the time series chart — independent of ComedApiClient's
-     * own MAX_AGE_MINUTES, which governs the weighted-average calculation,
-     * not the graph. Ported from the KDE widget's comed.js filterHistory.
+     * ComEd's feed publishes on a 5-minute cadence (matches
+     * PriceAlarmReceiver's own 5-minute alarm interval). Used below to
+     * recognize when one or more expected points are missing from the
+     * feed, rather than just connecting whatever points happen to exist.
      */
-    private fun filterTimeSeries(points: List<ComedApiClient.PricePoint>, hours: Int): List<ComedApiClient.PricePoint> {
+    private const val EXPECTED_POINT_INTERVAL_MINUTES = 5.0
+
+    /**
+     * A gap between two consecutive real points wider than this is
+     * treated as "at least one point is missing" rather than ordinary
+     * jitter in when the feed happened to publish or this device
+     * happened to poll. 1.5x the expected interval gives comfortable
+     * room for a few minutes of jitter (see ComedApiClient's own
+     * FEED_STALENESS_THRESHOLD_MINUTES comment for the kind of timing
+     * slop this feed exhibits normally) without also firing on every
+     * ordinary tick.
+     */
+    private const val MISSING_POINT_GAP_THRESHOLD_MINUTES = EXPECTED_POINT_INTERVAL_MINUTES * 1.5
+
+    /**
+     * Turns the raw, filtered feed points into the slot list
+     * PriceChartRenderer actually draws: every point still where it was,
+     * plus a PriceChartRenderer.TimeSeriesSlot.Missing inserted for each
+     * expected 5-minute point that isn't there, rather than silently
+     * leaving that gap for the renderer to paper over by connecting (line
+     * chart) or compressing past (bar chart) straight through it. Also
+     * applies the existing `hours` window and oldest-first sort that
+     * filterTimeSeries used to do on its own — independent of
+     * ComedApiClient's own MAX_AGE_MINUTES, which governs the
+     * weighted-average calculation, not the graph.
+     *
+     * Missing slots are only ever inserted *between* two real points
+     * (never before the first or after the last), so the returned list's
+     * first and last entries are always Present -- callers that need an
+     * anchor point (e.g. for the X axis's own time range) can rely on
+     * that.
+     */
+    private fun buildTimeSeriesSlots(
+        points: List<ComedApiClient.PricePoint>,
+        hours: Int
+    ): List<PriceChartRenderer.TimeSeriesSlot> {
         if (points.isEmpty()) return emptyList()
         val mostRecent = points.maxOf { it.millisUtc }
         val cutoff = mostRecent - hours * 60L * 60L * 1000L
-        return points.filter { it.millisUtc >= cutoff }.sortedBy { it.millisUtc }
+        val filtered = points.filter { it.millisUtc >= cutoff }.sortedBy { it.millisUtc }
+        if (filtered.isEmpty()) return emptyList()
+
+        val intervalMillis = (EXPECTED_POINT_INTERVAL_MINUTES * 60_000.0).toLong()
+        val gapThresholdMillis = (MISSING_POINT_GAP_THRESHOLD_MINUTES * 60_000.0).toLong()
+
+        val slots = mutableListOf<PriceChartRenderer.TimeSeriesSlot>()
+        slots.add(PriceChartRenderer.TimeSeriesSlot.Present(filtered[0].millisUtc, filtered[0].price))
+        for (i in 1 until filtered.size) {
+            val previous = filtered[i - 1]
+            val current = filtered[i]
+            val gapMillis = current.millisUtc - previous.millisUtc
+            if (gapMillis > gapThresholdMillis) {
+                // One or more expected points are missing between these
+                // two -- step forward in exact 5-minute increments from
+                // the previous real point, inserting a Missing slot for
+                // each one that isn't (close enough to) the next real
+                // point, so a longer outage yields proportionally more
+                // Missing slots rather than just one regardless of size.
+                var expectedMillis = previous.millisUtc + intervalMillis
+                while (current.millisUtc - expectedMillis > intervalMillis / 2) {
+                    slots.add(PriceChartRenderer.TimeSeriesSlot.Missing(expectedMillis))
+                    expectedMillis += intervalMillis
+                }
+            }
+            slots.add(PriceChartRenderer.TimeSeriesSlot.Present(current.millisUtc, current.price))
+        }
+        return slots
     }
 
     /**
@@ -583,7 +645,7 @@ object WidgetUpdateUtil {
         priceText: String,
         updatedText: String,
         band: PriceBand,
-        points: List<ComedApiClient.PricePoint>,
+        slots: List<PriceChartRenderer.TimeSeriesSlot>,
         chartStyle: PriceChartRenderer.ChartStyle,
         loading: Boolean
     ): RemoteViews {
@@ -612,7 +674,7 @@ object WidgetUpdateUtil {
 
         val (widthPx, heightPx) = computeChartPixelSize(context, appWidgetManager, appWidgetId)
         val chart = PriceChartRenderer.render(
-            context, widthPx, heightPx, points, chartStyle, chartTimeFormatter(context)
+            context, widthPx, heightPx, slots, chartStyle, chartTimeFormatter(context)
         )
         views.setImageViewBitmap(R.id.time_series_chart_image, chart.bitmap)
 
@@ -640,9 +702,9 @@ object WidgetUpdateUtil {
     ) {
         for (timeSeriesId in timeSeriesIds) {
             val config = loadTimeSeriesWidgetConfig(context, timeSeriesId)
-            val filtered = filterTimeSeries(rawPoints, config.graphHours)
+            val slots = buildTimeSeriesSlots(rawPoints, config.graphHours)
             val views = buildTimeSeriesWidgetViews(
-                context, appWidgetManager, timeSeriesId, priceText, updatedText, band, filtered, config.chartStyle,
+                context, appWidgetManager, timeSeriesId, priceText, updatedText, band, slots, config.chartStyle,
                 loading = false
             )
             appWidgetManager.updateAppWidget(timeSeriesId, views)
@@ -713,10 +775,10 @@ object WidgetUpdateUtil {
         val appWidgetManager = AppWidgetManager.getInstance(context)
         val display = currentTimeSeriesDisplayState(context)
         val config = loadTimeSeriesWidgetConfig(context, appWidgetId)
-        val filtered = filterTimeSeries(display.rawPoints, config.graphHours)
+        val slots = buildTimeSeriesSlots(display.rawPoints, config.graphHours)
         val views = buildTimeSeriesWidgetViews(
             context, appWidgetManager, appWidgetId, display.priceText, display.updatedText, display.band,
-            filtered, config.chartStyle, loading = false
+            slots, config.chartStyle, loading = false
         )
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
