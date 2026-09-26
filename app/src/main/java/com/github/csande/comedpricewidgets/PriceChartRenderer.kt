@@ -254,7 +254,7 @@ object PriceChartRenderer {
         // chart's line thickness (bars use FILL style instead, set at
         // their own drawing site, so this width only matters for LINE).
         val dataPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            strokeWidth = 1.5f * density
+            strokeWidth = 1f * density
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
         }
