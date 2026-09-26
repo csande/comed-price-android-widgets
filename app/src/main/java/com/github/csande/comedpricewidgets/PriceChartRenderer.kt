@@ -122,6 +122,19 @@ object PriceChartRenderer {
     private const val Y_AXIS_LABEL_COUNT = 4
 
     /**
+     * Fixed Y-axis upper bound used only when there's no real price data
+     * to derive one from (presentSlots is empty -- see render()). There's
+     * no "nice" min/max to compute here the way niceAxis does for real
+     * data, so this is hardcoded directly: with a 0 minimum and
+     * Y_AXIS_LABEL_COUNT (4) evenly-spaced labels, a max of 15 puts
+     * labels at exactly 0/5/10/15 cents -- round numbers, including the
+     * 0/5/10 marks a person would expect on an otherwise-blank price
+     * axis, with 15 filling out the 4th slot the layout's fixed label
+     * column requires.
+     */
+    private const val NO_DATA_AXIS_MAX_CENTS = 15.0
+
+    /**
      * The bitmap plus every axis label string the caller needs to
      * populate the surrounding TextViews with. yAxisLabelsTopToBottom
      * always has exactly Y_AXIS_LABEL_COUNT entries, top value first,
@@ -152,9 +165,13 @@ object PriceChartRenderer {
      * function draws exactly what it's given, with no filtering or gap-
      * detection of its own; it only decides how to draw a Missing slot
      * once it's told one is there. Returns EMPTY_RESULT (null bitmap,
-     * blank labels) if there is nothing to draw (empty slots, or a
-     * non-positive size), so the caller can safely push it straight into
-     * the widget's views either way.
+     * blank labels) only if there is truly nothing to draw at all (an
+     * empty slots list, or a non-positive size) -- an empty *chart*
+     * (real axes/gridlines/labels but no data on it) is instead drawn
+     * when slots is non-empty but entirely Missing, e.g. when
+     * WidgetUpdateUtil.buildTimeSeriesSlots is given no price data to
+     * work with at all; see the yAxis/presentSlots handling below and
+     * NO_DATA_AXIS_MAX_CENTS.
      */
     fun render(
         context: Context,
@@ -166,7 +183,6 @@ object PriceChartRenderer {
     ): ChartRenderResult {
         if (slots.isEmpty() || widthPx <= 0 || heightPx <= 0) return EMPTY_RESULT
         val presentSlots = slots.filterIsInstance<TimeSeriesSlot.Present>()
-        if (presentSlots.isEmpty()) return EMPTY_RESULT
 
         val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -219,7 +235,7 @@ object PriceChartRenderer {
         val horizontalGridLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = gridColor
             alpha = 45
-            strokeWidth = 0.25f * density // ~0.5dp
+            strokeWidth = 0.25f * density // ~0.25dp
             style = Paint.Style.STROKE
         }
         // The single dedicated zero baseline (see its drawing site
@@ -230,7 +246,7 @@ object PriceChartRenderer {
         val zeroLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = gridColor
             alpha = 100
-            strokeWidth = 0.5f * density // ~1dp
+            strokeWidth = 0.5f * density // ~0.5dp
             style = Paint.Style.STROKE
         }
         // The plotted line/bar data itself -- see colorForPrice above for
@@ -247,14 +263,21 @@ object PriceChartRenderer {
 
         // ---- Y axis (price, in cents): rounded to "nice" min/max bounds.
         // Bars get a forced zero baseline to grow from; the line chart
-        // stays tight to the actual data range. ----
-        var rawMinPrice = presentSlots.minOf { it.price }
-        var rawMaxPrice = presentSlots.maxOf { it.price }
-        if (isBar) {
-            rawMinPrice = min(0.0, rawMinPrice)
-            rawMaxPrice = max(0.0, rawMaxPrice)
+        // stays tight to the actual data range. When there's no real
+        // price data at all (every slot is Missing -- the "no data
+        // available" case), there's nothing to derive bounds from, so a
+        // fixed axis is used instead -- see NO_DATA_AXIS_MAX_CENTS. ----
+        val yAxis = if (presentSlots.isEmpty()) {
+            NiceAxis(0.0, NO_DATA_AXIS_MAX_CENTS, decimals = 0)
+        } else {
+            var rawMinPrice = presentSlots.minOf { it.price }
+            var rawMaxPrice = presentSlots.maxOf { it.price }
+            if (isBar) {
+                rawMinPrice = min(0.0, rawMinPrice)
+                rawMaxPrice = max(0.0, rawMaxPrice)
+            }
+            niceAxis(rawMinPrice, rawMaxPrice, Y_AXIS_LABEL_COUNT)
         }
-        val yAxis = niceAxis(rawMinPrice, rawMaxPrice, Y_AXIS_LABEL_COUNT)
 
         fun formatCents(value: Double, decimals: Int): String =
             String.format(java.util.Locale.US, "%.${decimals}f\u00A2", value)

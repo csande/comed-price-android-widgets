@@ -621,17 +621,35 @@ object WidgetUpdateUtil {
      * (never before the first or after the last), so the returned list's
      * first and last entries are always Present -- callers that need an
      * anchor point (e.g. for the X axis's own time range) can rely on
-     * that.
+     * that, with one exception: when there's no real price data at all
+     * within the window (points is empty, or none of it falls within
+     * `hours`), this instead returns buildNoDataSlots(hours) below, a
+     * synthetic list that's entirely Missing. That case is what lets
+     * PriceChartRenderer.render() still draw an empty chart -- axes,
+     * gridlines, X-axis time labels -- around a widget with nothing to
+     * plot, rather than the caller having to special-case an empty list.
      */
+    /**
+     * TEMPORARY testing override: when true, buildTimeSeriesSlots always
+     * returns the synthetic "no data available" skeleton (see
+     * buildNoDataSlots below), regardless of what was actually fetched --
+     * lets the empty-chart appearance be checked on a real device without
+     * needing to actually force a fetch failure or feed outage. Set back
+     * to false (or delete this flag and the check below) once done
+     * testing.
+     */
+    private const val FORCE_NO_DATA_MOCK_FOR_TESTING = true
+
     private fun buildTimeSeriesSlots(
         points: List<ComedApiClient.PricePoint>,
         hours: Int
     ): List<PriceChartRenderer.TimeSeriesSlot> {
-        if (points.isEmpty()) return emptyList()
+        if (FORCE_NO_DATA_MOCK_FOR_TESTING) return buildNoDataSlots(hours)
+        if (points.isEmpty()) return buildNoDataSlots(hours)
         val mostRecent = points.maxOf { it.millisUtc }
         val cutoff = mostRecent - hours * 60L * 60L * 1000L
         val filtered = points.filter { it.millisUtc >= cutoff }.sortedBy { it.millisUtc }
-        if (filtered.isEmpty()) return emptyList()
+        if (filtered.isEmpty()) return buildNoDataSlots(hours)
 
         val intervalMillis = (EXPECTED_POINT_INTERVAL_MINUTES * 60_000.0).toLong()
         val gapThresholdMillis = (MISSING_POINT_GAP_THRESHOLD_MINUTES * 60_000.0).toLong()
@@ -658,6 +676,38 @@ object WidgetUpdateUtil {
             slots.add(PriceChartRenderer.TimeSeriesSlot.Present(current.millisUtc, current.price))
         }
         return slots
+    }
+
+    /**
+     * Builds a synthetic, entirely-Missing slot list spanning the last
+     * `hours` for the "no data available at all" case (see
+     * buildTimeSeriesSlots above) -- one Missing slot every 5 minutes
+     * (EXPECTED_POINT_INTERVAL_MINUTES), anchored to the current device
+     * time rounded *down* to the nearest 5-minute mark rather than to
+     * whatever instant this happens to be called at. Without that
+     * rounding, the X-axis labels PriceChartRenderer derives from these
+     * slots' timestamps would show an odd time like 11:24 instead of a
+     * plausible-looking feed timestamp like 11:20, which would visibly
+     * give away that the times are synthetic rather than real feed
+     * publish times (which always land on 5-minute marks). Rounding
+     * against UTC millis rather than the device's local wall-clock
+     * fields is safe here specifically because every real-world UTC
+     * offset in use today is itself a multiple of 5 minutes, so the two
+     * roundings always agree.
+     *
+     * Spans exactly `hours` back from that anchor in 5-minute steps
+     * (inclusive of both ends), matching the point density a real full
+     * window of feed data would have.
+     */
+    private fun buildNoDataSlots(hours: Int): List<PriceChartRenderer.TimeSeriesSlot> {
+        val intervalMillis = (EXPECTED_POINT_INTERVAL_MINUTES * 60_000.0).toLong()
+        val nowMillis = System.currentTimeMillis()
+        val mostRecentMillis = nowMillis - (nowMillis % intervalMillis)
+        val pointCount = (hours * 60L / EXPECTED_POINT_INTERVAL_MINUTES.toLong()).toInt() + 1
+        val oldestMillis = mostRecentMillis - (pointCount - 1) * intervalMillis
+        return (0 until pointCount).map { i ->
+            PriceChartRenderer.TimeSeriesSlot.Missing(oldestMillis + i * intervalMillis)
+        }
     }
 
     /**
