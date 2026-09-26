@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.util.TypedValue
 import androidx.core.content.ContextCompat
@@ -90,45 +89,23 @@ object PriceChartRenderer {
     // Small breathing-room margins only, now that no text is drawn into
     // the bitmap -- just enough that a data point or gridline right at an
     // extreme isn't clipped by the bitmap edge or the stroke's own width.
-    // MARGIN_TOP_PX exists specifically for the Y-axis gridline dots
-    // below: the top gridline sits exactly at plotTop, so with zero
-    // margin a dot centered there would have half its circle drawn past
-    // the bitmap's own edge and clipped off -- not just cosmetically cut
-    // short, but visibly the wrong shape, since a circle missing its top
-    // arc no longer reads as round. GRID_DOT_DIAMETER_DP / 2 is the
-    // minimum needed there; the extra margin is a small buffer for
-    // anti-aliasing feathering at the dot's edge.
+    // MARGIN_TOP_PX exists specifically for the Y-axis gridlines below:
+    // the top gridline sits exactly at plotTop, so with zero margin its
+    // stroke would have half its width drawn past the bitmap's own edge
+    // and clipped off. The margin only needs to clear half the stroke
+    // width there, with a small buffer for anti-aliasing feathering at
+    // the line's edge.
     //
-    // MARGIN_BOTTOM_PX has the same job for the bottom gridline dot, but
-    // is sized by a taller requirement: drawMissingMarker below centers
-    // its glyph vertically *on* plotBottom (so it visibly crosses that
-    // line -- see its own doc comment), which means roughly half the
-    // glyph's line height extends below plotBottom into this margin.
+    // MARGIN_BOTTOM_PX has the same job for the bottom gridline, but is
+    // sized by a taller requirement: drawMissingMarker below centers its
+    // glyph vertically *on* plotBottom (so it visibly crosses that line
+    // -- see its own doc comment), which means roughly half the glyph's
+    // line height extends below plotBottom into this margin.
     private const val MARGIN_LEFT_PX = 6f
     private const val MARGIN_RIGHT_PX = 3f
     private const val MARGIN_TOP_PX = 2f
     private const val MARGIN_BOTTOM_PX = 5f
     private const val TICK_MARK_LENGTH_PX = 4f
-
-    /**
-     * Diameter of each dot on the Y-axis gridlines below. These dots get
-     * stretched along with the rest of the bitmap when it's scaled into
-     * its ImageView (scaleType="fitXY") at a size only estimated in
-     * WidgetUpdateUtil.computeChartPixelSize -- RemoteViews has no way to
-     * measure the ImageView's true final pixel size first, so that
-     * estimate always carries some small, fixed aspect-ratio error
-     * relative to the real render size. That error stretches every dot
-     * by the same proportion regardless of how big it's drawn here, so
-     * making the dots bigger doesn't make them rounder -- it only makes
-     * the same leftover ellipse more noticeable. Kept small and faint
-     * instead (see dottedGridPaint's alpha below) so that residual,
-     * unavoidable distortion reads as a soft dot rather than a visible
-     * oval.
-     */
-    private const val GRID_DOT_DIAMETER_DP = 1f
-
-    /** Center-to-center spacing between dots on the full-width Y-axis gridlines below. */
-    private const val Y_GRID_DOT_INTERVAL_DP = 6f
 
     /**
      * The character(s) drawn in place of a bar for a Missing slot: two
@@ -224,30 +201,44 @@ object PriceChartRenderer {
             else -> redColor
         }
 
+        // Short tick marks at the axis and the left axis line itself --
+        // not the zero line or the full-width horizontal gridlines, each
+        // of which has its own paint below so all three can be tuned
+        // independently.
         val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = gridColor
             strokeWidth = density // ~1dp
             style = Paint.Style.STROKE
         }
-        // Full-width dotted lines at each Y-axis tick, drawn as a round-
-        // capped stroke with a near-zero "on" length -- the standard
-        // Android trick for a dotted (rather than dashed) line, since
-        // DashPathEffect itself only draws squared-off dashes; the round
-        // cap turns each near-zero dash into a small filled circle
-        // instead. Alpha is still well below the short tick marks/zero
-        // line (gridColor's own 160), so these read as background
-        // texture the data line sits on top of rather than competing
-        // with it, but a shade darker than the original 45.
-        val dottedGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // Full-width faint solid lines at each Y-axis tick, so the eye
+        // can trace a label straight across to where it crosses the
+        // data. Thinner and fainter than gridPaint's tick marks (~1dp at
+        // alpha 128/255) and than zeroLinePaint below, so these read as
+        // background texture the data line sits on top of rather than
+        // competing with it.
+        val horizontalGridLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = gridColor
-            alpha = 65
-            strokeWidth = GRID_DOT_DIAMETER_DP * density
+            alpha = 45
+            strokeWidth = 0.25f * density // ~0.5dp
             style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            pathEffect = DashPathEffect(floatArrayOf(0.1f, Y_GRID_DOT_INTERVAL_DP * density), 0f)
         }
+        // The single dedicated zero baseline (see its drawing site
+        // below for when it's shown) -- kept separate from gridPaint
+        // rather than reusing it with a toggled alpha, so its width and
+        // alpha can be tuned without also affecting the tick marks/axis
+        // line.
+        val zeroLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = gridColor
+            alpha = 100
+            strokeWidth = 0.5f * density // ~1dp
+            style = Paint.Style.STROKE
+        }
+        // The plotted line/bar data itself -- see colorForPrice above for
+        // how its color is chosen; strokeWidth here controls the line
+        // chart's line thickness (bars use FILL style instead, set at
+        // their own drawing site, so this width only matters for LINE).
         val dataPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            strokeWidth = 0.75f * density
+            strokeWidth = 1.5f * density
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
         }
@@ -301,31 +292,30 @@ object PriceChartRenderer {
 
         // ---- Y axis tick marks: Y_AXIS_LABEL_COUNT short dashes at the
         // axis, evenly spaced by PRICE between yAxis.min and yAxis.max,
-        // each paired with a full-width faded dotted gridline at the same
-        // y (dottedGridPaint, above) so the eye can trace a label straight
-        // across to where it crosses the data, not just see a mark at the
-        // axis. Since yFor() is a linear mapping anchored exactly on
-        // yAxis.min/max, points evenly spaced by price are also evenly
-        // spaced by pixel row -- which is what lets the fixed
+        // each paired with a full-width faint solid gridline at the same
+        // y (horizontalGridLinePaint, above) so the eye can trace a label
+        // straight across to where it crosses the data, not just see a
+        // mark at the axis. Since yFor() is a linear mapping anchored
+        // exactly on yAxis.min/max, points evenly spaced by price are
+        // also evenly spaced by pixel row -- which is what lets the fixed
         // weight-based label column in price_time_series_widget.xml line up
         // with these without knowing any pixel coordinates itself.
         // yAxisValues is ordered top (max) first to match that column's
         // top-to-bottom label order.
         //
-        // The dotted line is skipped for whichever tick lands exactly on
-        // zero (common for the bottom row, e.g. the bar chart's forced
-        // zero baseline): the dedicated zero line below already draws a
-        // solid reference line at that same y, and since the dots are
-        // taller than that line's stroke width, overlaying dots on top of
-        // it left them visibly poking out above and below the solid
-        // line instead of blending into it. ----
+        // The full-width line is skipped for whichever tick lands exactly
+        // on zero (common for the bottom row, e.g. the bar chart's forced
+        // zero baseline): the dedicated zero line below (zeroLinePaint)
+        // already draws a solid reference line at that same y, so drawing
+        // both on top of each other would be redundant regardless of
+        // whether the two paints' widths/alphas happen to match. ----
         val yAxisValues = List(Y_AXIS_LABEL_COUNT) { i ->
             yAxis.max - (i.toDouble() / (Y_AXIS_LABEL_COUNT - 1)) * (yAxis.max - yAxis.min)
         }
         for (value in yAxisValues) {
             val y = yFor(value)
             if (abs(value) > 0.0001) {
-                canvas.drawLine(plotLeft, y, plotRight, y, dottedGridPaint)
+                canvas.drawLine(plotLeft, y, plotRight, y, horizontalGridLinePaint)
             }
             gridPaint.alpha = 128
             canvas.drawLine(plotLeft - tickMarkLengthPx, y, plotLeft, y, gridPaint)
@@ -360,9 +350,7 @@ object PriceChartRenderer {
         // dash, never as a bar spanning the chart). ----
         if (yAxis.min <= 0 && yAxis.max >= 0) {
             val zeroY = yFor(0.0)
-            gridPaint.alpha = 128
-            canvas.drawLine(plotLeft, zeroY, plotRight, zeroY, gridPaint)
-            gridPaint.alpha = 255
+            canvas.drawLine(plotLeft, zeroY, plotRight, zeroY, zeroLinePaint)
         }
 
         // ---- Axis line: left edge only. ----
