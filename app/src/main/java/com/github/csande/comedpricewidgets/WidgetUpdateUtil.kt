@@ -629,22 +629,10 @@ object WidgetUpdateUtil {
      * gridlines, X-axis time labels -- around a widget with nothing to
      * plot, rather than the caller having to special-case an empty list.
      */
-    /**
-     * TEMPORARY testing override: when true, buildTimeSeriesSlots always
-     * returns the synthetic "no data available" skeleton (see
-     * buildNoDataSlots below), regardless of what was actually fetched --
-     * lets the empty-chart appearance be checked on a real device without
-     * needing to actually force a fetch failure or feed outage. Set back
-     * to false (or delete this flag and the check below) once done
-     * testing.
-     */
-    private const val FORCE_NO_DATA_MOCK_FOR_TESTING = true
-
     private fun buildTimeSeriesSlots(
         points: List<ComedApiClient.PricePoint>,
         hours: Int
     ): List<PriceChartRenderer.TimeSeriesSlot> {
-        if (FORCE_NO_DATA_MOCK_FOR_TESTING) return buildNoDataSlots(hours)
         if (points.isEmpty()) return buildNoDataSlots(hours)
         val mostRecent = points.maxOf { it.millisUtc }
         val cutoff = mostRecent - hours * 60L * 60L * 1000L
