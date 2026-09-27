@@ -187,25 +187,7 @@
                         android:layout_weight="1" />
 
                     <TextView
-                        android:id="@+id/time_series_y_label_upper_mid"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="end"
-                        android:includeFontPadding="false"
-                        android:maxLines="1"
-                        android:textColor="?android:attr/textColorSecondary"
-                        android:autoSizeTextType="uniform"
-                        android:autoSizeMinTextSize="6sp"
-                        android:autoSizeMaxTextSize="10sp"
-                        android:autoSizeStepGranularity="1sp" />
-
-                    <TextView
-                        android:layout_width="1dp"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-
-                    <TextView
-                        android:id="@+id/time_series_y_label_lower_mid"
+                        android:id="@+id/time_series_y_label_mid"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:gravity="end"

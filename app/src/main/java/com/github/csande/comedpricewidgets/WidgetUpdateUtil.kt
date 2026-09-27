@@ -746,10 +746,9 @@ object WidgetUpdateUtil {
         )
         views.setImageViewBitmap(R.id.time_series_chart_image, chart.bitmap)
 
-        val (topLabel, upperMidLabel, lowerMidLabel, bottomLabel) = chart.yAxisLabelsTopToBottom
+        val (topLabel, midLabel, bottomLabel) = chart.yAxisLabelsTopToBottom
         views.setTextViewText(R.id.time_series_y_label_top, topLabel)
-        views.setTextViewText(R.id.time_series_y_label_upper_mid, upperMidLabel)
-        views.setTextViewText(R.id.time_series_y_label_lower_mid, lowerMidLabel)
+        views.setTextViewText(R.id.time_series_y_label_mid, midLabel)
         views.setTextViewText(R.id.time_series_y_label_bottom, bottomLabel)
         views.setTextViewText(R.id.time_series_x_label_start, chart.xAxisLabelStart)
         views.setTextViewText(R.id.time_series_x_label_mid, chart.xAxisLabelMid)

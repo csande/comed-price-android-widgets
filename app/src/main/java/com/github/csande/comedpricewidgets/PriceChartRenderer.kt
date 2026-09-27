@@ -8,7 +8,6 @@ import android.graphics.Paint
 import android.util.TypedValue
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
@@ -118,29 +117,34 @@ object PriceChartRenderer {
     private const val MISSING_MARKER_GLYPH = "\\\\"
     private const val MISSING_MARKER_TEXT_SIZE_DP = 7f
 
-    /** Number of Y-axis gridlines/labels -- fixed, matching the 4 fixed label slots in price_time_series_widget.xml. */
-    private const val Y_AXIS_LABEL_COUNT = 4
+    /**
+     * Number of Y-axis gridlines/labels -- fixed, matching the 3 fixed
+     * label slots (top/mid/bottom) in price_time_series_widget.xml, and
+     * matching the KDE original's usual 3-tick appearance (e.g.
+     * -5/0/5) for a typical price range. Unlike the KDE original, this
+     * count never actually varies -- see niceAxis's own doc comment for
+     * why a fixed count, rather than however many nice ticks happen to
+     * fit, is what this widget's fixed label column needs.
+     */
+    private const val Y_AXIS_LABEL_COUNT = 3
 
     /**
      * Fixed Y-axis upper bound used only when there's no real price data
      * to derive one from (presentSlots is empty -- see render()). There's
      * no "nice" min/max to compute here the way niceAxis does for real
      * data, so this is hardcoded directly: with a 0 minimum and
-     * Y_AXIS_LABEL_COUNT (4) evenly-spaced labels, a max of 15 puts
-     * labels at exactly 0/5/10/15 cents -- round numbers, including the
-     * 0/5/10 marks a person would expect on an otherwise-blank price
-     * axis, with 15 filling out the 4th slot the layout's fixed label
-     * column requires.
+     * Y_AXIS_LABEL_COUNT (3) evenly-spaced labels, a max of 10 puts
+     * labels at exactly 0/5/10 cents.
      */
-    private const val NO_DATA_AXIS_MAX_CENTS = 15.0
+    private const val NO_DATA_AXIS_MAX_CENTS = 10.0
 
     /**
      * The bitmap plus every axis label string the caller needs to
      * populate the surrounding TextViews with. yAxisLabelsTopToBottom
      * always has exactly Y_AXIS_LABEL_COUNT entries, top value first,
-     * matching price_time_series_widget.xml's time_series_y_label_top/upper_mid/
-     * lower_mid/bottom order. All strings are empty and bitmap is null
-     * when there's nothing to draw (see render()'s early return).
+     * matching price_time_series_widget.xml's time_series_y_label_top/
+     * mid/bottom order. All strings are empty and bitmap is null when
+     * there's nothing to draw (see render()'s early return).
      */
     data class ChartRenderResult(
         val bitmap: Bitmap?,
@@ -254,7 +258,7 @@ object PriceChartRenderer {
         // chart's line thickness (bars use FILL style instead, set at
         // their own drawing site, so this width only matters for LINE).
         val dataPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            strokeWidth = 1f * density
+            strokeWidth = 1.5f * density
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
         }
@@ -521,54 +525,78 @@ object PriceChartRenderer {
     private data class NiceAxis(val min: Double, val max: Double, val decimals: Int)
 
     /**
-     * Classic "nice numbers for graph labels" approach (Heckbert): picks
-     * a tick spacing that's 1, 2, or 5 times a power of ten, so labels
-     * land on round values instead of arbitrary fractions. Ported
-     * directly from PriceGraph.qml's niceNumber/niceAxis.
+     * Classic "nice numbers for graph labels" approach (Heckbert): rounds
+     * a value to the nearest 1, 2, or 5 times a power of ten, so a tick
+     * spacing derived from it lands labels on round values instead of
+     * arbitrary fractions. Loosely adapted from PriceGraph.qml's
+     * niceNumber (the KDE original also had a separate round=false mode
+     * for computing an overall axis range; niceAxis below no longer
+     * needs that, since it grows the spacing itself -- see
+     * nextNiceSpacing -- rather than deriving one range up front).
      */
-    private fun niceNumber(range: Double, round: Boolean): Double {
-        if (range <= 0) return 1.0
-        val exponent = floor(ln(range) / ln(10.0))
-        val fraction = range / 10.0.pow(exponent)
-        val niceFraction = if (round) {
-            when {
-                fraction < 1.5 -> 1.0
-                fraction < 3.0 -> 2.0
-                fraction < 7.0 -> 5.0
-                else -> 10.0
-            }
-        } else {
-            when {
-                fraction <= 1.0 -> 1.0
-                fraction <= 2.0 -> 2.0
-                fraction <= 5.0 -> 5.0
-                else -> 10.0
-            }
+    private fun niceNumber(value: Double): Double {
+        if (value <= 0) return 1.0
+        val exponent = floor(ln(value) / ln(10.0))
+        val fraction = value / 10.0.pow(exponent)
+        val niceFraction = when {
+            fraction < 1.5 -> 1.0
+            fraction < 3.0 -> 2.0
+            fraction < 7.0 -> 5.0
+            else -> 10.0
         }
         return niceFraction * 10.0.pow(exponent)
     }
 
     /**
-     * Computes clean min/max axis bounds (e.g. 0/6 rather than the raw
-     * 0.4/5.7) and how many decimal places their spacing needs. Unlike
-     * the KDE original, this no longer generates an intermediate tick
-     * list -- render() now always shows exactly Y_AXIS_LABEL_COUNT labels,
-     * evenly spaced between min and max (see yAxisValues above), rather
-     * than however many "nice" ticks happen to fall in range; in the
-     * common case (range divides evenly into maxTicks-1 nice steps) the
-     * two approaches produce identical values anyway.
+     * Steps a "nice" spacing (always some power of ten times 1, 2, or 5,
+     * per niceNumber above) up to the next one in that sequence -- 1 ->
+     * 2 -> 5 -> 10 -> 20 -> 50 -> 100 -> ... -- used by niceAxis below to
+     * widen the spacing when its initial nice guess turns out too narrow
+     * to reach rawMax in the fixed number of steps available.
      */
-    private fun niceAxis(rawMinIn: Double, rawMaxIn: Double, maxTicks: Int): NiceAxis {
+    private fun nextNiceSpacing(spacing: Double): Double {
+        val exponent = floor(ln(spacing) / ln(10.0))
+        val mantissa = Math.round(spacing / 10.0.pow(exponent))
+        return when (mantissa) {
+            1L -> 2.0 * 10.0.pow(exponent)
+            2L -> 5.0 * 10.0.pow(exponent)
+            else -> 1.0 * 10.0.pow(exponent + 1)
+        }
+    }
+
+    /**
+     * Computes clean min/max axis bounds so that every one of the fixed
+     * Y_AXIS_LABEL_COUNT labels -- not just the axis's own endpoints --
+     * lands on an evenly-spaced, round number (e.g. -5/0/5, not
+     * -5/-2/2/5). The KDE original generated however many nice ticks
+     * happened to fit a target spacing, a variable count -- that doesn't
+     * fit this widget's label column, which has a fixed number of
+     * TextViews laid out at fixed, evenly-height-spaced positions (see
+     * render()'s yAxisValues comment for why the labels must be evenly
+     * spaced *by price* to line up with that column without knowing any
+     * pixel coordinates). So instead the label count is fixed at
+     * tickCount and the spacing is what grows: starting from the nice
+     * spacing closest to (rawMax - rawMin) / (tickCount - 1), and
+     * widening it (through the standard "nice" sequence 1, 2, 5, 10, 20,
+     * 50, ... -- see nextNiceSpacing) until (tickCount - 1) steps of it,
+     * starting from a multiple of the spacing at or below rawMin, are
+     * enough to reach rawMax.
+     */
+    private fun niceAxis(rawMinIn: Double, rawMaxIn: Double, tickCount: Int): NiceAxis {
         var rawMin = rawMinIn
         var rawMax = rawMaxIn
         if (rawMin == rawMax) {
             rawMin -= 1
             rawMax += 1
         }
-        val range = niceNumber(rawMax - rawMin, false)
-        val spacing = niceNumber(range / (maxTicks - 1), true)
-        val niceMin = floor(rawMin / spacing) * spacing
-        val niceMax = ceil(rawMax / spacing) * spacing
+        val steps = tickCount - 1
+        var spacing = niceNumber((rawMax - rawMin) / steps)
+        var niceMin = floor(rawMin / spacing) * spacing
+        while (niceMin + steps * spacing < rawMax) {
+            spacing = nextNiceSpacing(spacing)
+            niceMin = floor(rawMin / spacing) * spacing
+        }
+        val niceMax = niceMin + steps * spacing
         // Sub-cent spacing (e.g. 0.5, 0.2) needs a decimal place, or
         // adjacent ticks round to the same displayed label.
         val decimals = if (spacing < 1) 1 else 0
