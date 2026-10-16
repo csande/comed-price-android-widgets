@@ -97,9 +97,10 @@ object PriceChartRenderer {
     //
     // MARGIN_BOTTOM_PX has the same job for the bottom gridline, but is
     // sized by a taller requirement: drawMissingMarker below centers its
-    // glyph vertically *on* plotBottom (so it visibly crosses that line
-    // -- see its own doc comment), which means roughly half the glyph's
-    // line height extends below plotBottom into this margin.
+    // glyph vertically *on* the zero line (so it visibly crosses that
+    // line -- see its own doc comment). When zero is the bottom of the
+    // axis (no negative prices), roughly half the glyph's line height
+    // extends below plotBottom into this margin.
     private const val MARGIN_LEFT_PX = 6f
     private const val MARGIN_RIGHT_PX = 3f
     private const val MARGIN_TOP_PX = 2f
@@ -400,7 +401,10 @@ object PriceChartRenderer {
                         canvas.drawRect(barLeft, barTop, barLeft + barWidth, barTop + barHeight, dataPaint)
                     }
                     is TimeSeriesSlot.Missing -> {
-                        drawMissingMarker(canvas, xForBar(k), plotBottom, density, gridColor)
+                        // Centered on the zero baseline (not plotBottom): when
+                        // any price is negative, the Y axis extends below
+                        // zero, so the zero line sits above the bottom edge.
+                        drawMissingMarker(canvas, xForBar(k), baselineY, density, gridColor)
                     }
                 }
             }
@@ -502,24 +506,24 @@ object PriceChartRenderer {
     /**
      * Draws the "no data" marker for a Missing bar slot: two backslashes
      * (see MISSING_MARKER_GLYPH), centered horizontally on the slot and
-     * centered *vertically on plotBottom* -- which is always exactly
-     * where the bottom-most Y-axis tick sits (yFor(yAxis.min) ==
-     * plotBottom by construction, regardless of what that value actually
-     * is -- see yFor below), and in the common case where the bar
-     * chart's Y axis bottoms out at zero, exactly where the solid zero
-     * line is drawn too. Centering on that line rather than sitting
-     * above it means the marker visibly crosses it instead of floating
-     * as a separate mark near the bottom.
+     * centered *vertically on zeroY* -- the Y position of the zero line
+     * (yFor(0.0)). The bar chart's Y axis always includes zero, so this
+     * is always within the plot area. When every price is non-negative,
+     * zero is the bottom of the axis and zeroY equals plotBottom; when
+     * at least one price is negative, the axis extends below zero and
+     * zeroY sits above plotBottom. Centering on the zero line, rather
+     * than on the bottom of the plot, keeps the marker visibly crossing
+     * that line in both cases instead of floating as a separate mark.
      */
-    private fun drawMissingMarker(canvas: Canvas, centerX: Float, plotBottom: Float, density: Float, color: Int) {
+    private fun drawMissingMarker(canvas: Canvas, centerX: Float, zeroY: Float, density: Float, color: Int) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = color
             textSize = MISSING_MARKER_TEXT_SIZE_DP * density
             textAlign = Paint.Align.CENTER
         }
         val fontMetrics = paint.fontMetrics
-        val baselineY = plotBottom - (fontMetrics.ascent + fontMetrics.descent) / 2f
-        canvas.drawText(MISSING_MARKER_GLYPH, centerX, baselineY, paint)
+        val textBaselineY = zeroY - (fontMetrics.ascent + fontMetrics.descent) / 2f
+        canvas.drawText(MISSING_MARKER_GLYPH, centerX, textBaselineY, paint)
     }
 
     private data class NiceAxis(val min: Double, val max: Double, val decimals: Int)
