@@ -282,8 +282,19 @@ object WidgetUpdateUtil {
         }
     }
 
+    /**
+     * Formats a price in cents to one decimal place. The value is rounded
+     * to tenths *before* formatting, via Math.round (which returns a
+     * Long, so the result of dividing it back down can never be negative
+     * zero). Without this, String.format renders any value that rounds
+     * to zero from the negative side -- an actual -0.0, or a small
+     * negative price like -0.04 -- as "-0.0", since the sign is decided
+     * before rounding. This also covers the time series widget's price
+     * text, which uses this same function.
+     */
     private fun formatPrice(context: Context, average: Double): String {
-        return String.format(Locale.US, "\u26A1 %.1f\u00A2", average)
+        val rounded = Math.round(average * 10.0) / 10.0
+        return String.format(Locale.US, "\u26A1 %.1f\u00A2", rounded)
     }
 
     /**

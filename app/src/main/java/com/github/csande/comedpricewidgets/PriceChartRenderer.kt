@@ -284,8 +284,18 @@ object PriceChartRenderer {
             niceAxis(rawMinPrice, rawMaxPrice, Y_AXIS_LABEL_COUNT)
         }
 
-        fun formatCents(value: Double, decimals: Int): String =
-            String.format(java.util.Locale.US, "%.${decimals}f\u00A2", value)
+        // Rounds to the displayed precision *before* formatting, via
+        // Math.round (returns a Long, so dividing it back down can never
+        // yield negative zero). Tick values are computed with
+        // floating-point arithmetic (see yAxisValues), so a tick that
+        // should be exactly 0 can come out as -0.0 or a tiny negative
+        // like -1e-16, which String.format would otherwise render as
+        // "-0" / "-0.0".
+        fun formatCents(value: Double, decimals: Int): String {
+            val factor = 10.0.pow(decimals)
+            val rounded = Math.round(value * factor) / factor
+            return String.format(java.util.Locale.US, "%.${decimals}f\u00A2", rounded)
+        }
 
         val plotLeft = marginLeftPx
         val plotRight = widthPx - marginRightPx
