@@ -3,14 +3,16 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- Centered in the widget's cell, both horizontally and vertically,
+         so the placement doesn't depend on any one device's cell size or
+         home screen grid (4x4, 5x5, etc.). The previous version used
+         layout_gravity="top" with a hardcoded top margin tuned to align
+         with app icons on a specific phone. -->
     <FrameLayout
         android:id="@+id/widget_root"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:layout_marginTop="10.2dp"
-        android:layout_marginStart="0dp"
-        android:layout_marginEnd="0dp"
+        android:layout_gravity="center"
         android:background="@drawable/widget_background_unknown">
 
         <LinearLayout
